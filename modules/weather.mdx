@@ -1,0 +1,264 @@
+---
+title: "Weather module"
+description: "GWeather API for fetching weather data from MET Norway"
+---
+
+The `libs/weather.lua` module provides integration with the GWeather library to fetch real-time weather information from the MET Norway weather service.
+
+## Overview
+
+This module uses the GWeather library (part of GNOME) to retrieve weather data based on geographic coordinates. It fetches temperature, conditions, wind speed, humidity, and weather icons.
+
+<Note>
+The weather module uses the MET Norway weather provider (`MET_NO`) which provides reliable global coverage.
+</Note>
+
+## Dependencies
+
+```lua
+local lgi = require('lgi')
+local GWeather = lgi.GWeather
+local GLib = lgi.GLib
+```
+
+## Data Structure
+
+The module maintains a `datos` table with the current weather state:
+
+```lua
+M.datos = {
+  load = false,      -- Whether data has been loaded
+  state = "state",   -- City name
+  country = "country", -- Country name
+  temp = 0,          -- Temperature
+  descrip = 0,       -- Weather description
+  icon = nil,        -- Icon name from GWeather
+  emoji = nil,       -- Nerd Font emoji corresponding to icon
+  wind = nil,        -- Wind speed/direction
+  humi = nil         -- Humidity percentage
+}
+```
+
+## Functions
+
+### update()
+
+Fetches weather data for a given location.
+
+<ParamField path="seconds" type="number" required>
+  Timeout in seconds for the update operation (typically 10)
+</ParamField>
+
+<ParamField path="lat" type="number" required>
+  Latitude coordinate of the location
+</ParamField>
+
+<ParamField path="lon" type="number" required>
+  Longitude coordinate of the location
+</ParamField>
+
+<ParamField path="callback" type="function">
+  Optional callback function that receives the weather data on success
+</ParamField>
+
+**Returns:** `boolean` - Whether the update was successful
+
+```lua
+local Weather = require("libs.weather")
+
+Weather.update(10, 40.7128, -74.0060, function(data)
+  print("Temperature:", data.temp)
+  print("Location:", data.state, data.country)
+  print("Conditions:", data.descrip)
+  print("Humidity:", data.humi)
+end)
+```
+
+<Note>
+The `update()` function blocks while fetching data using a GLib main loop. It automatically times out after the specified number of seconds if the request fails.
+</Note>
+
+## Weather Icon Mapping
+
+The module maps GWeather icon names to Nerd Font emojis:
+
+| Icon Name | Emoji | Description |
+|-----------|-------|-------------|
+| `weather-clear` | 󰖙 | Clear sky |
+| `weather-few-clouds` | 󰖕 | Few clouds |
+| `weather-clouds` | 󰖐 | Cloudy |
+| `weather-overcast` | 󰖐 | Overcast |
+| `weather-showers` | 󰖗 | Showers |
+| `weather-showers-scattered` | 󰖗 | Scattered showers |
+| `weather-rain` | 󰖖 | Rain |
+| `weather-storm` | 󰖓 | Storm/thunderstorm |
+| `weather-snow` | 󰼶 | Snow |
+| `weather-fog` | 󰖑 | Fog |
+
+## Complete Example
+
+```lua
+local Weather = require("libs.weather")
+local Gtk = require("lgi").require("Gtk", "4.0")
+local GLib = require("lgi").require("GLib")
+
+-- Create weather display labels
+local location_label = Gtk.Label.new("Loading...")
+local temp_label = Gtk.Label.new("--°C")
+local conditions_label = Gtk.Label.new("")
+
+-- Update function
+local function update_weather()
+  -- Coordinates for New York City
+  Weather.update(10, 40.7128, -74.0060, function(data)
+    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+      if data.load then
+        location_label:set_text(data.state .. ", " .. data.country)
+        temp_label:set_text(data.emoji .. " " .. data.temp)
+        conditions_label:set_text(data.descrip)
+      end
+      return false
+    end)
+  end)
+end
+
+-- Initial update
+update_weather()
+
+-- Update every 5 minutes
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 300, function()
+  update_weather()
+  return true
+end)
+```
+
+## Implementation Details
+
+### Location Discovery
+
+The module uses GWeather's world database to find the nearest city:
+
+```lua
+local mundo = GWeather.Location.get_world()
+local city = mundo:find_nearest_city(lat, lon)
+```
+
+### Weather Provider Configuration
+
+The module configures the GWeather info object:
+
+```lua
+info:set_location(city)
+info:set_application_id("io.github.poloz_z.CandyShell.Lua.Gtk4.Shell")
+info:set_contact_info("jpolo5678@gmail.com")
+info:set_enabled_providers("MET_NO")  -- Use MET Norway only
+```
+
+<Warning>
+The application ID and contact info are required by the MET Norway API. You should update these with your own values if you're building a custom application.
+</Warning>
+
+### Asynchronous Updates
+
+The module uses GWeather's asynchronous update mechanism with callbacks:
+
+```lua
+info.on_updated = function(self)
+  M.datos.state = city:get_city_name()
+  M.datos.country = city:get_country_name()
+  M.datos.temp = self:get_temp()
+  M.datos.descrip = self:get_conditions()
+  M.datos.wind = self:get_wind()
+  M.datos.humi = self:get_humidity()
+  M.datos.icon = self:get_icon_name()
+  M.datos.emoji = icons_emoji[icon_name] or ""
+  M.datos.load = true
+  success = true
+  loop:quit()
+end
+
+info:update()
+```
+
+## Usage in CandyShell
+
+In CandyShell's dashboard (dashboard.lua:30-97), the weather module is used to create a weather widget:
+
+```lua
+local w = require("libs.weather")
+
+local function update_weather()
+  w.update(10, 10.48, -66.90, function(data)
+    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+      refresh_ui()
+      return false
+    end)
+  end)
+end
+
+-- Update on startup
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1, function()
+  update_weather()
+  return false
+end)
+
+-- Update every 5 minutes
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 300, function()
+  update_weather()
+  return true
+end)
+```
+
+## Finding Coordinates
+
+To find coordinates for your location:
+
+1. Open [OpenStreetMap](https://www.openstreetmap.org/)
+2. Navigate to your city
+3. Right-click and select "Show address"
+4. The coordinates will be displayed in the format `latitude, longitude`
+
+Alternatively, use online geocoding services or the `gweather-settings` tool:
+
+```bash
+# Install GWeather tools
+sudo pacman -S gweather-gtk4  # Arch Linux
+sudo apt install gir1.2-gweather-4.0  # Ubuntu/Debian
+
+# Launch settings to find your location
+gweather-settings
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Weather data not loading">
+    - Check your internet connection
+    - Verify coordinates are in the correct format (decimal degrees)
+    - Ensure the timeout value is sufficient (at least 10 seconds)
+    - Check that GWeather library is properly installed
+  </Accordion>
+
+  <Accordion title="Wrong location displayed">
+    - The module finds the nearest city to the coordinates provided
+    - Use more precise coordinates for the city center
+    - Verify latitude comes before longitude in the function call
+  </Accordion>
+
+  <Accordion title="Icons not displaying">
+    - Install a Nerd Font that includes weather symbols
+    - Verify the font is configured in custom.css
+    - Check that GTK can access the font
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Weather Component" icon="cloud-sun" href="/components/weather">
+    Weather widget implementation in the dashboard
+  </Card>
+  <Card title="Dashboard" icon="grid" href="/components/dashboard">
+    Learn how the weather widget fits into the dashboard
+  </Card>
+</CardGroup>
