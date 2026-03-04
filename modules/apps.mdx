@@ -1,0 +1,402 @@
+---
+title: Apps
+description: Desktop application discovery and launching via GIO
+---
+
+The `gapps` module provides a simple interface for discovering and launching desktop applications using GIO's application information system. It scans installed `.desktop` files and provides metadata and launch functionality.
+
+## Usage
+
+```lua
+local apps = require("libs.gapps")
+
+-- Get all installed applications
+local all_apps = apps.get_all_apps()
+
+-- Launch an application
+if all_apps["firefox.desktop"] then
+  all_apps["firefox.desktop"].launch()
+end
+
+-- Display app information
+for id, app in pairs(all_apps) do
+  print(app.name .. ": " .. app.description)
+end
+```
+
+## Functions
+
+### get_all_apps
+
+```lua
+local apps = apps.get_all_apps()
+```
+
+Retrieves information about all installed desktop applications.
+
+**Returns:** Table indexed by application ID (desktop file name), containing app metadata and launch function
+
+```lua
+{
+  ["firefox.desktop"] = {
+    obj = GAppInfo,              -- GIO AppInfo object
+    name = "Firefox",            -- Display name
+    description = "Web Browser", -- Description (or 'nil' if none)
+    icon = GIcon,                -- GIO Icon object
+    launch = function()          -- Launch function
+  },
+  ["code.desktop"] = {
+    obj = GAppInfo,
+    name = "Visual Studio Code",
+    description = "Code Editor",
+    icon = GIcon,
+    launch = function()
+  },
+  -- ... more applications
+}
+```
+
+**Example:**
+
+```lua
+local gapps = require("libs.gapps")
+
+local apps = gapps.get_all_apps()
+
+-- Count total applications
+local count = 0
+for _ in pairs(apps) do
+  count = count + 1
+end
+print("Found " .. count .. " applications")
+
+-- List all applications
+for id, app in pairs(apps) do
+  print(string.format("%s: %s", id, app.name))
+  if app.description ~= "nil" then
+    print("  Description: " .. app.description)
+  end
+end
+```
+
+## Application Launcher Example
+
+```lua
+local gapps = require("libs.gapps")
+local Gtk = require("lgi").require("Gtk", "4.0")
+
+local function create_app_launcher()
+  local apps = gapps.get_all_apps()
+  
+  local list_box = Gtk.ListBox.new()
+  list_box:set_selection_mode(Gtk.SelectionMode.NONE)
+  
+  -- Create a list of apps sorted by name
+  local sorted_apps = {}
+  for id, app in pairs(apps) do
+    table.insert(sorted_apps, {id = id, app = app})
+  end
+  table.sort(sorted_apps, function(a, b)
+    return a.app.name < b.app.name
+  end)
+  
+  -- Create rows for each app
+  for _, item in ipairs(sorted_apps) do
+    local app = item.app
+    
+    local row = Gtk.ListBoxRow.new()
+    local box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 10)
+    
+    -- App icon
+    local icon = Gtk.Image.new_from_gicon(app.icon)
+    icon:set_pixel_size(32)
+    box:append(icon)
+    
+    -- App info
+    local vbox = Gtk.Box.new(Gtk.Orientation.VERTICAL, 2)
+    local name_label = Gtk.Label.new(app.name)
+    name_label:set_xalign(0)
+    vbox:append(name_label)
+    
+    if app.description ~= "nil" then
+      local desc_label = Gtk.Label.new(app.description)
+      desc_label:set_xalign(0)
+      desc_label:add_css_class("dim-label")
+      vbox:append(desc_label)
+    end
+    
+    box:append(vbox)
+    row:set_child(box)
+    list_box:append(row)
+    
+    -- Launch on click
+    local gesture = Gtk.GestureClick.new()
+    gesture.on_released = function()
+      app.launch()
+    end
+    row:add_controller(gesture)
+  end
+  
+  return list_box
+end
+```
+
+## Searchable App Grid
+
+```lua
+local gapps = require("libs.gapps")
+local Gtk = require("lgi").require("Gtk", "4.0")
+
+local function create_app_grid()
+  local apps = gapps.get_all_apps()
+  
+  local box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+  
+  -- Search entry
+  local search_entry = Gtk.SearchEntry.new()
+  search_entry:set_placeholder_text("Search applications...")
+  box:append(search_entry)
+  
+  -- Scrolled window
+  local scrolled = Gtk.ScrolledWindow.new()
+  scrolled:set_vexpand(true)
+  
+  -- Flow box for grid layout
+  local flow_box = Gtk.FlowBox.new()
+  flow_box:set_selection_mode(Gtk.SelectionMode.NONE)
+  flow_box:set_min_children_per_line(3)
+  flow_box:set_max_children_per_line(6)
+  flow_box:set_row_spacing(10)
+  flow_box:set_column_spacing(10)
+  
+  scrolled:set_child(flow_box)
+  box:append(scrolled)
+  
+  -- Create app buttons
+  local function create_app_button(app)
+    local btn_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 5)
+    btn_box:set_size_request(100, 100)
+    
+    local icon = Gtk.Image.new_from_gicon(app.icon)
+    icon:set_pixel_size(48)
+    btn_box:append(icon)
+    
+    local label = Gtk.Label.new(app.name)
+    label:set_wrap(true)
+    label:set_max_width_chars(10)
+    label:set_justify(Gtk.Justification.CENTER)
+    btn_box:append(label)
+    
+    local button = Gtk.Button.new()
+    button:set_child(btn_box)
+    button.on_clicked = function()
+      app.launch()
+    end
+    
+    return button, app.name:lower()
+  end
+  
+  -- Store app widgets with search terms
+  local app_widgets = {}
+  for id, app in pairs(apps) do
+    local widget, search_term = create_app_button(app)
+    flow_box:append(widget)
+    table.insert(app_widgets, {
+      widget = widget,
+      search_term = search_term
+    })
+  end
+  
+  -- Search filter
+  search_entry.on_search_changed = function(entry)
+    local query = entry:get_text():lower()
+    
+    for _, item in ipairs(app_widgets) do
+      if query == "" or item.search_term:find(query, 1, true) then
+        item.widget:show()
+      else
+        item.widget:hide()
+      end
+    end
+  end
+  
+  return box
+end
+```
+
+## Accessing GIO AppInfo
+
+Each application entry includes the raw `GAppInfo` object for advanced operations:
+
+```lua
+local gapps = require("libs.gapps")
+local apps = gapps.get_all_apps()
+
+if apps["code.desktop"] then
+  local app_info = apps["code.desktop"].obj
+  
+  -- Get executable path
+  local executable = app_info:get_executable()
+  print("Executable: " .. executable)
+  
+  -- Get command line
+  local commandline = app_info:get_commandline()
+  print("Command: " .. commandline)
+  
+  -- Check if app should be shown
+  local should_show = app_info:should_show()
+  print("Should show: " .. tostring(should_show))
+  
+  -- Get supported types
+  local types = app_info:get_supported_types()
+  if types then
+    for _, mime_type in ipairs(types) do
+      print("Supports: " .. mime_type)
+    end
+  end
+end
+```
+
+## Icon Handling
+
+The `icon` field is a `GIcon` object that can be used with GTK widgets:
+
+```lua
+local gapps = require("libs.gapps")
+local Gtk = require("lgi").require("Gtk", "4.0")
+
+local apps = gapps.get_all_apps()
+
+if apps["firefox.desktop"] then
+  local icon_obj = apps["firefox.desktop"].icon
+  
+  -- Use with Gtk.Image
+  local image = Gtk.Image.new_from_gicon(icon_obj)
+  image:set_pixel_size(64)
+  
+  -- Use with Gtk.Button
+  local button = Gtk.Button.new_from_icon_name("firefox")
+  button:set_icon_name(icon_obj:to_string())
+end
+```
+
+## Launching Applications
+
+The `launch` function is a convenience wrapper around `app_info:launch()`:
+
+```lua
+local apps = gapps.get_all_apps()
+
+-- Simple launch
+apps["firefox.desktop"].launch()
+
+-- Launch with error handling
+local success, err = pcall(function()
+  apps["firefox.desktop"].launch()
+end)
+
+if not success then
+  print("Failed to launch: " .. err)
+end
+```
+
+For advanced launch options (passing files, custom environment), use the `obj` directly:
+
+```lua
+local Gio = require("lgi").Gio
+local app_info = apps["code.desktop"].obj
+
+-- Launch with file
+local file = Gio.File.new_for_path("/home/user/script.lua")
+app_info:launch({file}, nil)
+```
+
+## Filtering Applications
+
+```lua
+local gapps = require("libs.gapps")
+
+-- Get only graphical applications (with icons)
+local function get_gui_apps()
+  local all_apps = gapps.get_all_apps()
+  local gui_apps = {}
+  
+  for id, app in pairs(all_apps) do
+    if app.icon and app.obj:should_show() then
+      gui_apps[id] = app
+    end
+  end
+  
+  return gui_apps
+end
+
+-- Get apps by category
+local function get_apps_by_category(category)
+  local all_apps = gapps.get_all_apps()
+  local filtered = {}
+  
+  for id, app in pairs(all_apps) do
+    local categories = app.obj:get_categories()
+    if categories and categories:find(category, 1, true) then
+      filtered[id] = app
+    end
+  end
+  
+  return filtered
+end
+
+-- Examples
+local gui_apps = get_gui_apps()
+local dev_apps = get_apps_by_category("Development")
+local games = get_apps_by_category("Game")
+```
+
+## Implementation Details
+
+### Memory Management
+
+The module includes explicit garbage collection to manage memory:
+
+```lua
+-- libs/gapps.lua:23-24
+all_info = nil 
+collectgarbage("step")
+```
+
+This helps clean up the temporary `all_info` array after processing.
+
+### Description Handling
+
+If an application has no description, the string `"nil"` is stored instead of a nil value:
+
+```lua
+-- libs/gapps.lua:17
+description = app_info:get_description() or 'nil'
+```
+
+Check for this when displaying descriptions:
+
+```lua
+if app.description ~= "nil" then
+  print(app.description)
+end
+```
+
+### Application Discovery
+
+Applications are discovered via `Gio.AppInfo.get_all()`, which reads `.desktop` files from:
+- `/usr/share/applications/`
+- `/usr/local/share/applications/`
+- `~/.local/share/applications/`
+
+## Dependencies
+
+- **LGI**: Lua GObject Introspection bindings
+- **GIO**: GLib I/O and application library
+
+## Performance Notes
+
+- `get_all_apps()` scans all desktop files each time it's called
+- For frequently updated UIs, consider caching the results
+- The module triggers garbage collection after loading apps to free memory
+- Each app maintains a reference to its `GAppInfo` object

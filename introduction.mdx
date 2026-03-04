@@ -1,0 +1,131 @@
+---
+title: Introduction
+description: A lightweight Wayland desktop shell built with GTK4, Adwaita, and Lua scripting
+---
+
+## What is CandyShell?
+
+CandyShell is a custom **Wayland desktop shell** that provides a minimal, modular desktop experience. Built with GTK4/Adwaita and Gtk-Layer-Shell, it uses Lua scripting for configuration and extensibility, making it both lightweight and hackable.
+
+Unlike traditional desktop environments, CandyShell is designed to integrate seamlessly with tiling window managers like Sway, providing a beautiful overlay interface without the bloat.
+
+<Note>
+  CandyShell is designed for Wayland compositors and requires Sway or a compatible environment.
+</Note>
+
+## Why use CandyShell?
+
+CandyShell fills the gap between minimal window managers and full desktop environments:
+
+<CardGroup cols={2}>
+  <Card title="Lightweight" icon="feather">
+    Built with minimal dependencies, CandyShell uses LuaJIT for scripting and GTK4 for native performance.
+  </Card>
+  <Card title="Modular design" icon="puzzle-piece">
+    Each component (dashboard, calendar, music player) is a separate Lua module that can be customized or replaced.
+  </Card>
+  <Card title="Dynamic theming" icon="palette">
+    Automatically generates color schemes from your wallpaper using matugen, with smooth transitions between themes.
+  </Card>
+  <Card title="Sway integration" icon="window">
+    Communicates with Sway via IPC to control workspaces, gaps, and window management directly from the shell.
+  </Card>
+</CardGroup>
+
+## Key highlights
+
+### Layer shell architecture
+
+CandyShell uses gtk4-layer-shell to position UI elements on different Wayland layers:
+
+```lua
+LayerShell.init_for_window(bg_win)
+LayerShell.set_layer(bg_win, LayerShell.Layer.BACKGROUND)
+LayerShell.set_exclusive_zone(bg_win, -1)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.LEFT, true)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.RIGHT, true)
+```
+
+This allows the wallpaper, dashboard, and bottom bar to exist on separate layers without interfering with application windows.
+
+### Lua-based configuration
+
+The entire shell is scriptable with Lua. The main entry point initializes the GTK4 application:
+
+```lua
+local app = Adw.Application.new(appID, Gio.ApplicationFlags.FLAGS_NONE)
+
+function app:on_startup()
+  local bg_win = Adw.ApplicationWindow.new(self)
+  -- Configure window layers, wallpaper, dashboard
+end
+```
+
+### Integrated dashboard
+
+The pull-down dashboard includes:
+
+- **Calendar widget** with month/year navigation and current date highlighting
+- **Weather information** powered by GWeather (libgweather) with automatic location detection
+- **Music player** with MPRIS integration via Playerctl, including animated waveform visualization
+- **System monitors** for CPU, RAM, and disk usage using libgtop
+- **Quick actions** for power management and session control
+
+### Wallpaper-based theming
+
+Theme colors are extracted from your wallpaper:
+
+```lua
+-- Left click to change wallpaper
+if btn == 1 then
+  wp_file_dialog:open(nil, nil, function(dialog, result)
+    local file = dialog:open_finish(result)
+    if file then
+      current_wp_path = file:get_path()
+      Theme.apply(current_wp_path, current_mode)
+    end
+  end)
+-- Right click to toggle light/dark mode
+elseif btn == 3 then
+  current_mode = (current_mode == "light") and "dark" or "light"
+  Theme.apply(current_wp_path, current_mode)
+end
+```
+
+The theme system uses `matugen` to extract color palettes and applies them as CSS variables to all UI components.
+
+## Who is it for?
+
+CandyShell is ideal for users who:
+
+- Want a beautiful desktop experience without running a full desktop environment
+- Use Sway or other wlroots-based Wayland compositors
+- Prefer configuring their system with code rather than GUI settings
+- Value system resource efficiency and startup speed
+- Enjoy customizing their desktop to match their workflow
+
+## Requirements
+
+To run CandyShell, you need:
+
+- **LuaJIT** - Fast Lua interpreter with FFI support
+- **GTK4** - Modern toolkit for the UI
+- **Adwaita (libadwaita)** - GTK4 widgets and styling
+- **Gtk4-Layer-Shell** - Wayland layer shell protocol support
+- **LGI** - Lua bindings for GObject Introspection
+- **Sway** - Wayland compositor (or compatible wlroots-based compositor)
+
+<Note>
+  Additional features require `matugen` for theming, `playerctl` for music control, and system libraries like `libgtop`, `libgweather`, and `upower-glib`.
+</Note>
+
+## Philosophy
+
+CandyShell embraces the Unix philosophy of doing one thing well: providing a beautiful, functional overlay interface for Wayland tiling compositors. It doesn't try to be a window manager, file manager, or settings daemon—it simply adds the polish that minimalist setups often lack.
+
+The project prioritizes:
+
+1. **Modularity** - Each component is self-contained and can be modified independently
+2. **Performance** - Efficient memory management with periodic garbage collection
+3. **Simplicity** - Clean Lua code that's easy to read and modify
+4. **Visual appeal** - Smooth animations, dynamic theming, and attention to detail

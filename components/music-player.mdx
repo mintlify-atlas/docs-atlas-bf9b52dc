@@ -1,0 +1,444 @@
+---
+title: Music Player
+description: MPRIS-based music player widget with album art, color extraction, and animated playback visualization
+---
+
+The Music Player widget provides rich media controls with album art display, dominant color extraction for theming, and an animated waveform progress indicator.
+
+## Overview
+
+Implemented in `libs/music.lua` and integrated into the dashboard, the music player uses the MPRIS (Media Player Remote Interfacing Specification) D-Bus interface via Playerctl to communicate with media players.
+
+## MPRIS Integration
+
+The music library uses Playerctl to interface with any MPRIS-compatible media player:
+
+```lua
+local lgi = require("lgi")
+local Playerctl = lgi.require("Playerctl")
+
+local player = nil
+
+local function init_player()
+  if player then return player end
+  
+  local new_player = Playerctl.Player.new()
+  
+  if new_player then
+    player = new_player
+    player.on_exit = function(self)
+      player = nil
+      collectgarbage("collect")
+    end
+  end
+  return player
+end
+```
+
+## Player Information
+
+Retrieve current track metadata:
+
+```lua
+function M.player_info()
+  local current_player = get_player()
+  if not current_player then
+    return {
+      artist = "none",
+      title  = "none",
+      album  = "none",
+      artUrl = "none",
+      length = 0,
+      status = "EXITED"
+    }
+  end
+
+  return {
+    artist = current_player:print_metadata_prop("xesam:artist"),
+    title  = current_player:print_metadata_prop("xesam:title"),
+    album  = current_player:print_metadata_prop("xesam:album"),
+    artUrl = current_player:print_metadata_prop("mpris:artUrl"),
+    length = current_player:print_metadata_prop("mpris:length"),
+    status = current_player.playback_status
+  }
+end
+```
+
+<ResponseField name="artist" type="string">
+  Track artist from xesam:artist metadata
+</ResponseField>
+
+<ResponseField name="title" type="string">
+  Track title from xesam:title metadata
+</ResponseField>
+
+<ResponseField name="album" type="string">
+  Album name from xesam:album metadata
+</ResponseField>
+
+<ResponseField name="artUrl" type="string">
+  Album art URL (file:// or data: URI)
+</ResponseField>
+
+<ResponseField name="length" type="number">
+  Track length in microseconds
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Playback status: "PLAYING", "PAUSED", "STOPPED", or "EXITED"
+</ResponseField>
+
+## Playback Controls
+
+### Play/Pause
+
+```lua
+function M.play_pause()
+  local current_player = get_player()
+  return current_player:play_pause()
+end
+```
+
+### Next Track
+
+```lua
+function M.next()
+  local current_player = get_player()
+  return current_player:next()
+end
+```
+
+### Previous Track
+
+```lua
+function M.previous()
+  local current_player = get_player()
+  return current_player:previous()
+end
+```
+
+## Position and Length
+
+### Get Current Position
+
+```lua
+function M.get_position()
+  local current_player = get_player()
+  if not current_player then
+    return 0
+  end
+  local position = current_player:get_position()
+  if position then
+    local to_second = math.floor(position/1000000)
+    return to_second
+  end
+  return 0
+end
+```
+
+<ResponseField name="return" type="number">
+  Current playback position in seconds
+</ResponseField>
+
+### Get Track Length
+
+```lua
+function M.length()
+  local info = M.player_info()
+  if info.length then
+    local to_second = math.floor(info.length/1000000)
+    return to_second
+  end
+  return 0
+end
+```
+
+<ResponseField name="return" type="number">
+  Track length in seconds
+</ResponseField>
+
+## Album Art Handling
+
+The music player supports both file-based and base64-encoded album art:
+
+```lua
+function M.get_album_art()
+  local info = M.player_info()
+  local artUrlstr = info.artUrl
+
+  -- Handle base64-encoded images
+  if artUrlstr and string.find(artUrlstr, "^data:image/.*;base64,") then
+    local image64 = string.gsub(artUrlstr, "^data:image/[^;]*;base64,", "")
+    local decode_image = GLib.base64_decode(image64)
+    if decode_image then
+      local imagePix = GdkPixbuf.PixbufLoader.new()
+      imagePix:write(decode_image)
+      imagePix:close()
+      return imagePix:get_pixbuf()
+    end
+  end
+
+  -- Handle file:// URLs
+  if artUrlstr and string.find(artUrlstr, "^file://") then
+    local file_path = string.gsub(artUrlstr, "^file://", "")
+    file_path = GLib.uri_unescape_string(file_path, nil)
+    return GdkPixbuf.Pixbuf.new_from_file(file_path)
+  end
+  return nil
+end
+```
+
+<ResponseField name="return" type="GdkPixbuf.Pixbuf | nil">
+  Pixbuf containing album art, or nil if unavailable
+</ResponseField>
+
+## Color Extraction
+
+The music player extracts the dominant color from album art for dynamic theming:
+
+```lua
+function M.get_album_colors()
+  local pixbuf = M.get_album_art()
+
+  if not pixbuf then
+    return "#353535", "#ffffff" -- default gray bg, white text
+  end
+
+  -- Scale to 3x3 pixels to get average color
+  local one_pixel = pixbuf:scale_simple(3, 3, 'BILINEAR')
+  
+  if not one_pixel then
+    return "#353535", "#ffffff"
+  end
+
+  local bytes = one_pixel:read_pixel_bytes()
+  local data = bytes:get_data()
+
+  local r = string.byte(data, 1)
+  local g = string.byte(data, 2)
+  local b = string.byte(data, 3)
+
+  local bg_hex = string.format("#%02x%02x%02x", r, g, b)
+  local fg_hex = get_contrasting_text_color(r, g, b)
+
+  return bg_hex, fg_hex
+end
+```
+
+<ResponseField name="bg_hex" type="string">
+  Dominant color as hex string (e.g., "#3a5f8c")
+</ResponseField>
+
+<ResponseField name="fg_hex" type="string">
+  Contrasting text color ("#000000" or "#ffffff")
+</ResponseField>
+
+### Contrast Calculation
+
+```lua
+local function get_contrasting_text_color(r, g, b)
+  local luminance = (0.299 * r + 0.587 * g + 0.114 * b)
+  return luminance > 128 and "#000000" or "#ffffff"
+end
+```
+
+## Dashboard Integration
+
+The music widget in the dashboard includes an animated waveform progress bar:
+
+```lua
+local function c_music_box()
+  local animation_time = 0.0
+  local current_progress = 0.0
+  local is_playing_state = false
+  local wave_color = {r = 1, g = 1, b = 1}
+
+  local music_box = Gtk.CenterBox.new()
+  music_box:set_size_request(450, 110)
+  music_box:add_css_class("simple-music-box")
+
+  -- Album art
+  local album_art = Gtk.Image { pixel_size = 110 }
+  album_art:add_css_class("album-card")
+
+  -- Track info
+  local title_label = Gtk.Label { label = "Título", css_classes = { "title-4" } }
+  local artist_label = Gtk.Label { label = "Artista", css_classes = { "title-5" } }
+  title_label:set_name("music_title")
+  artist_label:set_name("music_artist")
+  title_label.ellipsize = 3
+  artist_label.ellipsize = 3
+
+  -- Animated progress bar
+  local progress_area = Gtk.DrawingArea.new()
+  progress_area:set_size_request(-1, 24)
+
+  local function draw_progress_wave(area, cr, width, height)
+    local padding = 2
+    local y_center = height / 2
+    local bar_width = width
+    local active_length = bar_width * current_progress
+    local active_end_x = padding + active_length
+    local line_height = 3.0
+
+    -- Draw inactive portion
+    if active_end_x < (width - padding) then
+      cr:set_source_rgba(0.5, 0.5, 0.5, 0.25)
+      cr:set_line_width(line_height)
+      cr:set_line_cap(cairo.LineCap.ROUND)
+      cr:move_to(active_end_x, y_center)
+      cr:line_to(width - padding, y_center)
+      cr:stroke()
+    end
+
+    -- Draw active waveform
+    cr:set_source_rgb(wave_color.r, wave_color.g, wave_color.b)
+    cr:set_line_width(line_height)
+    
+    if current_progress > 0 then
+      local wave_amplitude = is_playing_state and 3.5 or 0.0
+      local wave_frequency = 6.0
+      local wave_speed = 6.0
+      local num_segments = math.max(math.floor(active_length / 1.5), 2)
+
+      cr:move_to(padding, y_center)
+      for i = 1, num_segments do
+        local x_pos = padding + (i / num_segments) * active_length
+        local x_factor = (x_pos - padding) / bar_width
+        local wave_offset = math.sin(x_factor * PI * wave_frequency * 2 + animation_time * wave_speed)
+        local y_pos = y_center + (wave_offset * wave_amplitude)
+        cr:line_to(x_pos, y_pos)
+      end
+      cr:stroke()
+
+      -- Position indicator
+      local indicator_height = 14.0
+      local indicator_width = 4.0
+      
+      cr:set_line_width(indicator_width)
+      cr:set_line_cap(cairo.LineCap.ROUND)
+      
+      cr:move_to(active_end_x, y_center - (indicator_height / 2))
+      cr:line_to(active_end_x, y_center + (indicator_height / 2))
+      cr:stroke()
+    end
+  end
+  progress_area:set_draw_func(draw_progress_wave, nil, nil)
+
+  return music_box
+end
+```
+
+<ParamField path="wave_amplitude" type="number" default="3.5">
+  Waveform animation amplitude when playing (0 when paused)
+</ParamField>
+
+<ParamField path="wave_frequency" type="number" default="6.0">
+  Number of wave cycles across the progress bar
+</ParamField>
+
+<ParamField path="wave_speed" type="number" default="6.0">
+  Animation speed multiplier
+</ParamField>
+
+## Dynamic Theming
+
+The music box background and text colors adapt to album art:
+
+```lua
+local function update_music_box()
+  local bg_color, text_color = music.get_album_colors()
+  local pixbuf = music.get_album_art()
+  local info = music.player_info()
+  
+  wave_color = hex_to_rgb(text_color)
+
+  if pixbuf then
+    album_art:set_from_pixbuf(pixbuf)
+  else
+    album_art:set_from_file('res/no_music.png')
+  end
+
+  local dynamic_css = base_css .. string.format([[
+    #simple_music_box {
+      background-color: %s;
+      background-image: radial-gradient(circle at center, %s 0%%, shade(%s, 0.6) 100%%);
+    }
+    #music_artist, #music_title, .music-control-btn {
+      color: %s;
+    }
+  ]], bg_color, bg_color, bg_color, text_color)
+
+  music_style_provider:load_from_data(dynamic_css, #dynamic_css)
+  
+  return true
+end
+
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, update_music_box)
+```
+
+<ResponseField name="update_interval" type="number">
+  Music info updates every second
+</ResponseField>
+
+<ResponseField name="animation_rate" type="number">
+  Waveform animates at ~60 FPS (16ms intervals)
+</ResponseField>
+
+## Control Buttons
+
+The music widget includes previous, play/pause, and next buttons:
+
+```lua
+local prev_button = Gtk.Button.new()
+local prev_label = Gtk.Label.new("")
+prev_button:set_child(prev_label)
+prev_button.on_clicked = function() music.previous() end
+
+local play_pause_button = Gtk.Button.new()
+local play_pause_label = Gtk.Label.new("")
+play_pause_button:set_child(play_pause_label)
+play_pause_button.on_clicked = function() music.play_pause() end
+
+local next_button = Gtk.Button.new()
+local next_label = Gtk.Label.new("")
+next_button:set_child(next_label)
+next_button.on_clicked = function() music.next() end
+```
+
+## CSS Classes
+
+<Expandable title="Music Player CSS Classes">
+
+| Class | Purpose |
+|-------|--------|
+| `simple-music-box` | Main music widget container |
+| `album-card` | Album art image styling |
+| `title-4` | Track title text |
+| `title-5` | Artist name text |
+| `music-control-btn` | Playback control buttons |
+
+</Expandable>
+
+## Supported Players
+
+Any MPRIS-compatible media player, including:
+- Spotify
+- VLC
+- MPV
+- Firefox/Chrome
+- Rhythmbox
+- Audacious
+- And many more
+
+## File Locations
+
+- Library: `libs/music.lua:1-180`
+- Dashboard integration: `dashboard.lua:168-384`
+
+## Dependencies
+
+- `lgi.Playerctl` - MPRIS player control
+- `lgi.GLib` - Base64 decoding and utilities
+- `lgi.GdkPixbuf` - Image loading and manipulation
+- `lgi.cairo` - Progress bar drawing

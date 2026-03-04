@@ -1,0 +1,532 @@
+---
+title: System Monitor
+description: Real-time system resource monitoring including CPU, RAM, disk usage, battery status, and WiFi connectivity
+---
+
+The System Monitor provides real-time tracking of system resources through multiple specialized modules.
+
+## Overview
+
+System monitoring is split across two main libraries:
+- `libs/system_i.lua` - CPU, RAM, disk, and battery monitoring via GTop and UPower
+- `libs/nm.lua` - Network connectivity via NetworkManager
+
+## System Information Library
+
+### Initialization
+
+```lua
+local lgi = require("lgi")
+local GTop = lgi.require("GTop")
+local UPowerGlib = lgi.require("UPowerGlib")
+
+GTop.glibtop_init()
+
+local upower_client = nil
+local function get_upower_client()
+  if not upower_client then
+    upower_client = UPowerGlib.Client.new()
+  end
+  return upower_client
+end
+```
+
+## Memory Monitoring
+
+Get detailed RAM and swap usage:
+
+```lua
+function M.get_mem_info()
+  local mem = GTop.glibtop_mem()
+  local swap = GTop.glibtop_swap()
+
+  GTop.glibtop_get_mem(mem)
+  GTop.glibtop_get_swap(swap)
+
+  local function to_mb(bytes)
+    return bytes / (1024 * 1024)
+  end
+
+  local real_used = mem.used - mem.buffer - mem.cached
+
+  return {
+    ram = {
+      total = to_mb(mem.total),
+      used = to_mb(mem.used),
+      free = to_mb(mem.free),
+      real_used = to_mb(real_used),
+      percent_real_used = (real_used / mem.total) * 100,
+      percent_used = (mem.used / mem.total) * 100
+    },
+    swap = {
+      total = to_mb(swap.total),
+      used = to_mb(swap.used),
+      free = to_mb(swap.free),
+      percent_used = swap.total > 0 and (swap.used / swap.total) * 100 or 0
+    }
+  }
+end
+```
+
+<ResponseField name="ram.total" type="number">
+  Total RAM in megabytes
+</ResponseField>
+
+<ResponseField name="ram.used" type="number">
+  Used RAM including buffers/cache in MB
+</ResponseField>
+
+<ResponseField name="ram.free" type="number">
+  Free RAM in MB
+</ResponseField>
+
+<ResponseField name="ram.real_used" type="number">
+  Actually used RAM excluding buffers/cache in MB
+</ResponseField>
+
+<ResponseField name="ram.percent_real_used" type="number">
+  Percentage of RAM used (excluding buffers/cache)
+</ResponseField>
+
+<ResponseField name="swap.total" type="number">
+  Total swap space in MB
+</ResponseField>
+
+<ResponseField name="swap.percent_used" type="number">
+  Percentage of swap space used
+</ResponseField>
+
+## CPU Monitoring
+
+Track CPU usage with differential calculation:
+
+```lua
+local last_total = 0
+local last_idle = 0
+
+function M.get_cpu_used()
+  local cpu = GTop.glibtop_cpu()
+  GTop.glibtop_get_cpu(cpu)
+
+  if last_total > 0 and last_idle > 0 then
+    local total_diff = cpu.total - last_total
+    local idle_diff = cpu.idle - last_idle
+    if total_diff > 0 then
+      local usage = 100 * (1 - (idle_diff / total_diff))
+      last_total = cpu.total
+      last_idle = cpu.idle
+      return math.min(100, math.max(0, usage))
+    end
+  end
+  
+  last_total = cpu.total
+  last_idle = cpu.idle
+  return 0
+end
+```
+
+<ResponseField name="return" type="number">
+  CPU usage percentage (0-100)
+</ResponseField>
+
+The CPU calculation uses a differential approach:
+1. Store previous total and idle ticks
+2. Calculate the difference since last measurement
+3. Compute usage as: `100 * (1 - idle_diff / total_diff)`
+4. Clamp result between 0 and 100
+
+## Disk Usage
+
+Monitor filesystem usage for any mount point:
+
+```lua
+function M.get_disk_usage(point)
+  local fs_usage = GTop.glibtop_fsusage()
+  GTop.glibtop_get_fsusage(fs_usage, point)
+  
+  if fs_usage.blocks > 0 then
+    local percent = (fs_usage.blocks - fs_usage.bavail) * 100 / fs_usage.blocks
+    return percent
+  end
+  return 0
+end
+```
+
+<ParamField path="point" type="string" required>
+  Mount point to check (e.g., "/", "/home", "/mnt/data")
+</ParamField>
+
+<ResponseField name="return" type="number">
+  Disk usage percentage (0-100)
+</ResponseField>
+
+## Battery Monitoring
+
+Get battery information with caching to reduce D-Bus calls:
+
+```lua
+local battery_cache = nil
+local battery_cache_time = 0
+
+function M.get_battery_info()
+  -- Use cache if less than 5 seconds old
+  local current_time = os.time()
+  if battery_cache and (current_time - battery_cache_time) < 5 then
+    return battery_cache
+  end
+
+  local client = get_upower_client()
+  local devices = client:get_devices()
+
+  if devices then
+    for _, device in pairs(devices) do
+      if device:get_object_path() == "/org/freedesktop/UPower/devices/battery_BAT0" then
+        battery_cache = {
+          percentage = device.percentage,
+          state = device.state,
+          time_empty = device.time_to_empty,
+          time_full = device.time_to_full
+        }
+        battery_cache_time = current_time
+        return battery_cache
+      end
+    end
+  end
+  
+  -- Default values if no battery found
+  return {
+    percentage = 0,
+    state = 0,
+    time_empty = 0,
+    time_full = 0
+  }
+end
+```
+
+<ResponseField name="percentage" type="number">
+  Battery charge percentage (0-100)
+</ResponseField>
+
+<ResponseField name="state" type="number">
+  Battery state:
+  - 0: Unknown
+  - 1: Charging
+  - 2: Discharging
+  - 3: Empty
+  - 4: Fully charged
+  - 5: Pending charge
+  - 6: Pending discharge
+</ResponseField>
+
+<ResponseField name="time_empty" type="number">
+  Estimated seconds until battery is empty
+</ResponseField>
+
+<ResponseField name="time_full" type="number">
+  Estimated seconds until battery is full
+</ResponseField>
+
+### Convenience Functions
+
+```lua
+function M.get_battery_percentage()
+  local info = M.get_battery_info()
+  return info.percentage
+end
+
+function M.get_battery_state()
+  local info = M.get_battery_info()
+  return tonumber(info.state)
+end
+```
+
+## Network Monitoring
+
+The `libs/nm.lua` module provides WiFi connectivity information via NetworkManager.
+
+### WiFi Information
+
+```lua
+local lgi = require("lgi")
+local NM = lgi.require("NM")
+
+local nm_client = nil
+local function get_client()
+  if not nm_client then
+    nm_client = NM.Client.new()
+  end
+  return nm_client
+end
+
+local function ssid_to_text(ssid_bytes)
+  if not ssid_bytes then
+    return "oculta"
+  end
+  local text = ssid_bytes:get_data()
+  return text or "uknow"
+end
+
+local function get_wifi_device()
+  local client = get_client()
+  if not client then return nil end
+
+  local devices = client:get_devices() or {}
+  for _, dev in ipairs(devices) do
+    if tostring(dev:get_device_type()) == "WIFI" then
+      return dev
+    end
+  end
+  return nil
+end
+
+function M.get_wifi_info()
+  local wifi_dev = get_wifi_device()
+  if not wifi_dev then
+    return { error = "no se encontro dispositivo wifi" }
+  end
+
+  local active_ap = wifi_dev:get_active_access_point()
+  local current_status = {
+    interface = wifi_dev:get_iface(),
+    state = wifi_dev.state,
+    ssid = "desconectado",
+    strength = 0,
+    connected = false
+  }
+
+  if active_ap then
+    local ssid_bytes = active_ap:get_ssid()
+    if ssid_bytes then
+      current_status.ssid = ssid_to_text(ssid_bytes)
+      current_status.strength = active_ap:get_strength()
+      current_status.connected = true
+    end
+  end
+
+  return current_status
+end
+```
+
+<ResponseField name="interface" type="string">
+  Network interface name (e.g., "wlan0")
+</ResponseField>
+
+<ResponseField name="state" type="number">
+  NetworkManager device state
+</ResponseField>
+
+<ResponseField name="ssid" type="string">
+  Network SSID or "desconectado" if disconnected
+</ResponseField>
+
+<ResponseField name="strength" type="number">
+  Signal strength percentage (0-100)
+</ResponseField>
+
+<ResponseField name="connected" type="boolean">
+  Whether WiFi is connected
+</ResponseField>
+
+### Convenience Functions
+
+```lua
+function M.get_wifi_strength()
+  local info = M.get_wifi_info()
+  if info.error or not info.connected then
+    return 0
+  end
+  return info.strength
+end
+
+function M.is_wifi_connected()
+  local info = M.get_wifi_info()
+  return not info.error and info.connected
+end
+```
+
+## Dashboard Integration
+
+The system monitor widget displays CPU, RAM, and disk usage as level bars:
+
+```lua
+local function create_sys_widget()
+  local System = require("libs.system_i")
+
+  local main_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 0)
+  main_box:add_css_class("sys-status-card")
+  main_box:set_size_request(-1, 100)
+
+  local function create_row(icon, color_class)
+    local row = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 12)
+    row:set_valign(Gtk.Align.CENTER)
+    row:set_vexpand(true)
+
+    local icon_label = Gtk.Label.new(icon)
+    icon_label:add_css_class("sys-icon-small")
+
+    local bar = Gtk.LevelBar.new()
+    bar:set_orientation(Gtk.Orientation.HORIZONTAL)
+    bar:set_min_value(0)
+    bar:set_max_value(100)
+    bar:set_hexpand(true)
+    bar:set_size_request(-1, 2)
+    
+    bar:add_css_class("sys-bar-ultra-slim")
+    if color_class then bar:add_css_class(color_class) end
+
+    row:append(icon_label)
+    row:append(bar)
+    
+    return row, bar
+  end
+
+  local cpu_row, cpu_bar = create_row("", "bar-cpu")
+  local ram_row, ram_bar = create_row("", "bar-ram")
+  local disk_row, disk_bar = create_row("󰋊", "bar-disk")
+
+  main_box:append(cpu_row)
+  main_box:append(ram_row)
+  main_box:append(disk_row)
+
+  local function update_stats()
+    local cpu_usage = System.get_cpu_used()
+    local mem_info = System.get_mem_info()
+    local disk_usage = System.get_disk_usage('/')
+
+    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+      cpu_bar:set_value(cpu_usage)
+      ram_bar:set_value(mem_info.ram.percent_real_used)
+      disk_bar:set_value(disk_usage)
+      return false
+    end)
+    return true
+  end
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, update_stats)
+  update_stats()
+
+  return main_box
+end
+```
+
+<ResponseField name="update_interval" type="number">
+  System stats update every 2 seconds
+</ResponseField>
+
+<Expandable title="System Monitor Icons">
+
+| Resource | Icon | Description |
+|----------|------|-------------|
+| CPU |  | Processor usage |
+| RAM |  | Memory usage |
+| Disk | 󰋊 | Storage usage |
+
+</Expandable>
+
+## CSS Classes
+
+<Expandable title="System Monitor CSS Classes">
+
+| Class | Purpose |
+|-------|--------|
+| `sys-status-card` | System monitor container |
+| `sys-icon-small` | Resource type icons |
+| `sys-bar-ultra-slim` | Level bar base styling |
+| `bar-cpu` | CPU bar color |
+| `bar-ram` | RAM bar color |
+| `bar-disk` | Disk bar color |
+
+</Expandable>
+
+## Performance Considerations
+
+### Battery Caching
+
+Battery information is cached for 5 seconds to reduce D-Bus overhead:
+
+```lua
+if battery_cache and (current_time - battery_cache_time) < 5 then
+  return battery_cache
+end
+```
+
+### CPU Differential Calculation
+
+CPU usage is calculated from the difference between measurements, providing accurate per-period usage rather than cumulative stats.
+
+### Memory Management
+
+The libraries use singleton patterns for clients:
+
+```lua
+local upower_client = nil
+local function get_upower_client()
+  if not upower_client then
+    upower_client = UPowerGlib.Client.new()
+  end
+  return upower_client
+end
+```
+
+## Usage Examples
+
+### CPU Usage
+
+```lua
+local System = require("libs.system_i")
+local cpu_percent = System.get_cpu_used()
+print(string.format("CPU: %.1f%%", cpu_percent))
+```
+
+### Memory Information
+
+```lua
+local mem_info = System.get_mem_info()
+print(string.format("RAM: %.1f%% (%.0f MB / %.0f MB)",
+  mem_info.ram.percent_real_used,
+  mem_info.ram.real_used,
+  mem_info.ram.total))
+```
+
+### Disk Usage
+
+```lua
+local disk_percent = System.get_disk_usage("/")
+print(string.format("Disk: %.1f%%", disk_percent))
+```
+
+### Battery Status
+
+```lua
+local battery = System.get_battery_info()
+print(string.format("Battery: %.0f%% (state: %d)",
+  battery.percentage, battery.state))
+```
+
+### WiFi Status
+
+```lua
+local nm = require("libs.nm")
+local wifi_info = nm.get_wifi_info()
+if wifi_info.connected then
+  print(string.format("WiFi: %s (%d%% signal)",
+    wifi_info.ssid, wifi_info.strength))
+else
+  print("WiFi: Disconnected")
+end
+```
+
+## File Locations
+
+- System info library: `libs/system_i.lua:1-131`
+- Network manager library: `libs/nm.lua:1-81`
+- Dashboard integration: `dashboard.lua:99-166`
+
+## Dependencies
+
+### System Information
+- `lgi.GTop` - System statistics (CPU, RAM, disk)
+- `lgi.UPowerGlib` - Battery information via UPower
+
+### Network Monitoring
+- `lgi.NM` - NetworkManager D-Bus interface

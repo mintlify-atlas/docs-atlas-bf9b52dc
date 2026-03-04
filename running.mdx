@@ -1,0 +1,555 @@
+---
+title: "Running CandyShell"
+description: "Start CandyShell, integrate with Sway, and troubleshoot common issues"
+---
+
+CandyShell is designed to run as a background layer on Wayland compositors that support the layer-shell protocol, particularly Sway. This guide covers how to launch and integrate CandyShell into your desktop environment.
+
+## Running CandyShell Manually
+
+### Basic Launch
+
+Navigate to the CandyShell directory and run:
+
+```bash
+cd ~/path/to/candyshell
+luajit main.lua
+```
+
+<Note>
+CandyShell must be run from its source directory because it loads resources (`res/`, `custom.css`, `libs/`) using relative paths.
+</Note>
+
+### Launch with Logging
+
+To capture debug output and errors:
+
+```bash
+luajit main.lua 2>&1 | tee candyshell.log
+```
+
+This will display output in the terminal and save it to `candyshell.log` for troubleshooting.
+
+## Integration with Sway
+
+### Auto-start on Login
+
+Add CandyShell to your Sway configuration to launch automatically:
+
+<Steps>
+
+<Step title="Edit Sway config">
+
+Open your Sway configuration file:
+
+```bash
+nano ~/.config/sway/config
+```
+
+</Step>
+
+<Step title="Add exec command">
+
+Add the following line to auto-start CandyShell:
+
+```bash ~/.config/sway/config
+# Launch CandyShell on startup
+exec cd ~/path/to/candyshell && luajit main.lua
+```
+
+Replace `~/path/to/candyshell` with the actual path to your CandyShell directory.
+
+<Warning>
+Make sure to use `cd` before running `luajit main.lua` so that CandyShell can find its resource files.
+</Warning>
+
+</Step>
+
+<Step title="Reload Sway configuration">
+
+```bash
+swaymsg reload
+```
+
+Or restart Sway completely:
+
+```bash
+swaymsg exit  # Then log back in
+```
+
+</Step>
+
+</Steps>
+
+### Sway Integration Features
+
+CandyShell integrates with Sway through IPC commands via the `libs/sway.lua` module:
+
+```lua libs/sway.lua:29-37
+function M.connect()
+  local path = os.getenv("SWAYSOCK")
+  if not path then 
+    return nil 
+  end
+  local client = Gio.SocketClient.new()
+  local addr = Gio.UnixSocketAddress.new(path)
+  return client:connect(addr, nil)
+end
+```
+
+#### Dashboard Gaps Control
+
+When you hover over the top edge of the screen to reveal the dashboard, CandyShell adjusts Sway gaps automatically:
+
+```lua dashboard.lua:566-578
+function motion_controller:on_enter()
+  revealer.reveal_child = true
+  if conn then
+    sway.run_command(conn, "gaps top all set 310")
+  end
+end
+
+function motion_controller:on_leave()
+  revealer.reveal_child = false
+  if conn then
+    sway.run_command(conn, "gaps top all set 10")
+  end
+end
+```
+
+This pushes windows down when the dashboard appears, creating a smooth experience.
+
+<Tip>
+You can modify the gap values (310 and 10) in `dashboard.lua` to adjust how much space the dashboard takes.
+</Tip>
+
+### Power Controls Integration
+
+The dashboard includes system power controls that execute Sway and systemd commands:
+
+```lua dashboard.lua:509-520
+-- Power off button
+function poweroff_button:on_clicked()
+  GLib.spawn_command_line_sync("systemctl poweroff")
+end
+
+-- Exit Sway button
+function exit_button:on_clicked()
+  GLib.spawn_command_line_sync("swaymsg exit")
+end
+```
+
+## Creating a Launcher Script
+
+For easier launching, create a wrapper script:
+
+<Steps>
+
+<Step title="Create launch script">
+
+```bash
+nano ~/bin/candyshell
+```
+
+Add the following content:
+
+```bash ~/bin/candyshell
+#!/bin/bash
+cd ~/path/to/candyshell
+exec luajit main.lua "$@"
+```
+
+</Step>
+
+<Step title="Make executable">
+
+```bash
+chmod +x ~/bin/candyshell
+```
+
+</Step>
+
+<Step title="Add to PATH (if needed)">
+
+If `~/bin` is not in your PATH, add it to your shell rc file:
+
+```bash ~/.bashrc or ~/.zshrc
+export PATH="$HOME/bin:$PATH"
+```
+
+</Step>
+
+<Step title="Launch from anywhere">
+
+Now you can launch CandyShell from any directory:
+
+```bash
+candyshell
+```
+
+</Step>
+
+</Steps>
+
+## Application Architecture
+
+### Window Layers
+
+CandyShell creates two main windows with different layer shell configurations:
+
+<CodeGroup>
+
+```lua Background Layer (Desktop)
+local bg_win = Adw.ApplicationWindow.new(self)
+
+LayerShell.init_for_window(bg_win)
+LayerShell.set_layer(bg_win, LayerShell.Layer.BACKGROUND)
+LayerShell.set_exclusive_zone(bg_win, -1)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.LEFT, true)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.RIGHT, true)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.TOP, true)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.BOTTOM, true)
+```
+
+```lua Top Layer (Bottom Bar)
+local bar_win = Gtk.ApplicationWindow.new(self)
+
+LayerShell.init_for_window(bar_win)
+LayerShell.set_layer(bar_win, LayerShell.Layer.TOP)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.LEFT, true)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.RIGHT, true)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.BOTTOM, true)
+LayerShell.set_margin(bar_win, LayerShell.Edge.LEFT, 15)
+LayerShell.set_margin(bar_win, LayerShell.Edge.RIGHT, 15)
+LayerShell.set_margin(bar_win, LayerShell.Edge.BOTTOM, 3)
+LayerShell.auto_exclusive_zone_enable(bar_win)
+```
+
+</CodeGroup>
+
+### Component Overview
+
+CandyShell consists of several modular components:
+
+<CardGroup cols={2}>
+  <Card title="main.lua" icon="file-code">
+    Entry point, window creation, bottom bar with pinned apps and system status
+  </Card>
+  <Card title="dashboard.lua" icon="table-columns">
+    Top dashboard with calendar, music player, weather, and system stats
+  </Card>
+  <Card title="libs/theme.lua" icon="palette">
+    Dynamic theming with Material You colors via matugen
+  </Card>
+  <Card title="libs/sway.lua" icon="window-restore">
+    Sway IPC integration for workspace and gap control
+  </Card>
+  <Card title="libs/system_i.lua" icon="microchip">
+    System information (CPU, RAM, disk, battery)
+  </Card>
+  <Card title="libs/nm.lua" icon="wifi">
+    NetworkManager integration for WiFi status
+  </Card>
+  <Card title="libs/music.lua" icon="music">
+    MPRIS music player control
+  </Card>
+  <Card title="libs/gapps.lua" icon="grid">
+    Desktop application launcher using .desktop files
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### CandyShell Won't Start
+
+<AccordionGroup>
+
+<Accordion title="Error: cannot open custom.css">
+  Make sure you're running CandyShell from its source directory:
+  
+  ```bash
+  cd ~/path/to/candyshell
+  luajit main.lua
+  ```
+  
+  The `custom.css` file must be in the current working directory.
+</Accordion>
+
+<Accordion title="Error: cannot load 'gtk4-layer-shell'">
+  Install the GTK4 Layer Shell library:
+  
+  ```bash
+  # Arch Linux
+  sudo pacman -S gtk4-layer-shell
+  
+  # Fedora
+  sudo dnf install gtk4-layer-shell
+  ```
+  
+  Verify installation:
+  ```bash
+  luajit -e "require('ffi').load('gtk4-layer-shell'); print('OK')"
+  ```
+</Accordion>
+
+<Accordion title="Wallpaper not loading">
+  Check that your wallpaper file exists:
+  
+  ```bash
+  cat ~/.config/candy-shell/config.json
+  ```
+  
+  Verify the wallpaper path is correct and the file is readable:
+  ```bash
+  ls -la /path/to/wallpaper.png
+  ```
+  
+  If the file is missing, right-click the desktop to select a new wallpaper.
+</Accordion>
+
+<Accordion title="Icons not showing">
+  Font Awesome fonts may be missing:
+  
+  ```bash
+  # Install icon fonts
+  sudo pacman -S ttf-font-awesome
+  ```
+  
+  Then restart CandyShell:
+  ```bash
+  pkill -f "luajit main.lua"
+  candyshell
+  ```
+</Accordion>
+
+<Accordion title="Dashboard doesn't appear">
+  Move your mouse cursor to the very top edge of the screen. The dashboard has a motion controller that reveals it on hover:
+  
+  ```lua dashboard.lua:564-578
+  local motion_controller = Gtk.EventControllerMotion.new()
+  
+  function motion_controller:on_enter()
+    revealer.reveal_child = true
+    -- Dashboard appears
+  end
+  ```
+  
+  If it still doesn't work, check compositor compatibility.
+</Accordion>
+
+<Accordion title="matugen errors">
+  Dynamic theming requires matugen:
+  
+  ```bash
+  # Check if installed
+  matugen --version
+  
+  # Install if missing
+  cargo install matugen
+  # or
+  yay -S matugen-bin
+  ```
+  
+  Test it manually:
+  ```bash
+  matugen image /path/to/image.png -j hex
+  ```
+</Accordion>
+
+</AccordionGroup>
+
+### Performance Issues
+
+<Steps>
+
+<Step title="Check resource usage">
+
+```bash
+# Monitor CandyShell CPU/memory
+top -p $(pgrep -f "luajit main.lua")
+```
+
+</Step>
+
+<Step title="Adjust update intervals">
+
+Reduce widget update frequency by editing `main.lua` and `dashboard.lua`:
+
+```lua
+-- Change from 1 second to 5 seconds
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, update_time)
+```
+
+</Step>
+
+<Step title="Disable heavy widgets">
+
+Comment out resource-intensive components like the music player or weather widget if not needed:
+
+```lua dashboard.lua
+-- Comment out to disable
+-- local music_box = c_music_box()
+-- right_box:append(music_box)
+```
+
+</Step>
+
+</Steps>
+
+### Compositor Compatibility
+
+<Note>
+CandyShell requires a Wayland compositor with **layer-shell protocol** support.
+</Note>
+
+**Supported:**
+- ✅ Sway (recommended)
+- ✅ Hyprland
+- ✅ Wayfire (with layer-shell support)
+
+**Not Supported:**
+- ❌ GNOME Wayland (no layer-shell)
+- ❌ KDE Plasma Wayland (limited support)
+- ❌ Any X11 window manager
+
+### Checking Logs
+
+View detailed error messages:
+
+```bash
+# Run with full error output
+luajit main.lua 2>&1 | tee ~/candyshell.log
+
+# Check for specific errors
+grep -i error ~/candyshell.log
+grep -i "cannot" ~/candyshell.log
+```
+
+## Advanced Usage
+
+### Running Multiple Instances
+
+CandyShell uses a unique application ID:
+
+```lua main.lua:19
+local appID = "io.github.poloz_z.CandyShell.Lua.Gtk4.Shell"
+```
+
+To run multiple instances (e.g., different configurations), modify the `appID` in `main.lua`:
+
+```lua
+local appID = "io.github.poloz_z.CandyShell.Lua.Gtk4.Shell.Instance2"
+```
+
+### Running on Specific Outputs
+
+To run CandyShell on a specific monitor, you can modify the Sway config:
+
+```bash ~/.config/sway/config
+# Run CandyShell only on primary monitor
+exec swaymsg 'workspace 1, exec cd ~/path/to/candyshell && luajit main.lua'
+```
+
+### Development Mode
+
+For development and testing:
+
+```bash
+# Run with Lua debugging
+luajit -e "require('strict')" main.lua
+
+# Or use local lgi with modifications
+LUA_PATH="./?.lua;/usr/share/lua/5.1/?.lua" luajit main.lua
+```
+
+## Graceful Shutdown
+
+### Stopping CandyShell
+
+To stop CandyShell cleanly:
+
+```bash
+# Find and kill the process
+pkill -f "luajit main.lua"
+
+# Or use Sway exit (if integrated)
+swaymsg exit
+```
+
+### Cleanup on Exit
+
+CandyShell includes automatic garbage collection:
+
+```lua main.lua:23-26
+GLib.timeout_add_seconds(GLib.PRIORITY_LOW, 30, function()
+  collectgarbage("collect")
+  return true
+end)
+```
+
+This helps prevent memory leaks during extended use.
+
+## Integration with Other Tools
+
+### Waybar / Polybar Replacement
+
+CandyShell can fully replace traditional status bars. Disable conflicting bars in Sway:
+
+```bash ~/.config/sway/config
+# Disable Sway's built-in bar
+bar {
+    mode invisible
+}
+
+# Or comment out waybar
+# exec waybar
+```
+
+### Application Launcher
+
+CandyShell provides pinned apps, but for a full launcher, integrate with:
+
+- **wofi** - Wayland-native launcher
+- **rofi** (Wayland fork) - Feature-rich launcher
+
+```bash ~/.config/sway/config
+# Launch wofi with Super+D
+bindsym $mod+d exec wofi --show drun
+```
+
+### Screenshot Integration
+
+Configure screenshot tools to work with CandyShell's layer shell:
+
+```bash ~/.config/sway/config
+# Screenshots with grim + slurp
+bindsym Print exec grim ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png
+bindsym Shift+Print exec grim -g "$(slurp)" ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Customize pinned apps, wallpaper, and theme
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Review dependencies and installation steps
+  </Card>
+</CardGroup>
+
+---
+
+## Getting Help
+
+If you encounter issues:
+
+1. Check the [troubleshooting section](#troubleshooting) above
+2. Review logs: `luajit main.lua 2>&1 | tee candyshell.log`
+3. Verify all [dependencies](/installation) are installed
+4. Check compositor compatibility (Sway recommended)
+5. Report issues on the GitHub repository
+
+<Tip>
+CandyShell is actively developed. Check for updates regularly with `git pull` in the source directory.
+</Tip>

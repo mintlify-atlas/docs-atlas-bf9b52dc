@@ -1,0 +1,368 @@
+---
+title: Network
+description: NetworkManager WiFi integration for connection status and signal strength
+---
+
+The `nm` module provides WiFi connectivity information through NetworkManager, allowing you to check connection status, signal strength, and connected network details.
+
+## Usage
+
+```lua
+local network = require("libs.nm")
+
+-- Check if connected to WiFi
+if network.is_wifi_connected() then
+  local info = network.get_wifi_info()
+  print("Connected to: " .. info.ssid)
+  print("Signal: " .. info.strength .. "%")
+end
+
+-- Get signal strength
+local strength = network.get_wifi_strength()
+print("WiFi signal: " .. strength .. "%")
+```
+
+## Functions
+
+### get_wifi_info
+
+```lua
+local info = network.get_wifi_info()
+```
+
+Retrieves comprehensive information about the current WiFi connection.
+
+**Returns:** Table with WiFi connection details
+
+```lua
+-- When WiFi device is found
+{
+  interface = "wlan0",      -- Network interface name
+  state = 100,              -- Device state code
+  ssid = "MyNetwork",       -- Network name (or "desconectado" if not connected)
+  strength = 75,            -- Signal strength 0-100 (0 if not connected)
+  connected = true          -- Connection status
+}
+
+-- When no WiFi device is found
+{
+  error = "no se encontro dispositivo wifi"
+}
+```
+
+**Example:**
+
+```lua
+local network = require("libs.nm")
+local info = network.get_wifi_info()
+
+if info.error then
+  print("Error: " .. info.error)
+else
+  print("Interface: " .. info.interface)
+  print("State: " .. info.state)
+  
+  if info.connected then
+    print("Connected to: " .. info.ssid)
+    print("Signal strength: " .. info.strength .. "%")
+  else
+    print("Not connected to any network")
+  end
+end
+```
+
+### get_wifi_strength
+
+```lua
+local strength = network.get_wifi_strength()
+```
+
+Convenience function to get just the WiFi signal strength.
+
+**Returns:** Signal strength (0-100). Returns 0 if not connected or no WiFi device found.
+
+**Example:**
+
+```lua
+local strength = network.get_wifi_strength()
+
+-- Display appropriate icon based on signal strength
+local icon
+if strength == 0 then
+  icon = "network-wireless-offline"
+elseif strength > 80 then
+  icon = "network-wireless-signal-excellent"
+elseif strength > 60 then
+  icon = "network-wireless-signal-good"
+elseif strength > 40 then
+  icon = "network-wireless-signal-ok"
+elseif strength > 20 then
+  icon = "network-wireless-signal-weak"
+else
+  icon = "network-wireless-signal-none"
+end
+
+wifi_icon:set_from_icon_name(icon)
+```
+
+### is_wifi_connected
+
+```lua
+local connected = network.is_wifi_connected()
+```
+
+Checks if currently connected to a WiFi network.
+
+**Returns:** `true` if connected, `false` otherwise
+
+**Example:**
+
+```lua
+local network = require("libs.nm")
+
+if network.is_wifi_connected() then
+  local info = network.get_wifi_info()
+  print("Online - Connected to " .. info.ssid)
+  enable_online_features()
+else
+  print("Offline - No WiFi connection")
+  show_offline_message()
+end
+```
+
+## WiFi Status Indicator Example
+
+```lua
+local network = require("libs.nm")
+local Gtk = require("lgi").require("Gtk", "4.0")
+local GLib = require("lgi").GLib
+
+local function create_wifi_indicator()
+  local box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 5)
+  local icon = Gtk.Image.new()
+  local label = Gtk.Label.new()
+  
+  box:append(icon)
+  box:append(label)
+  
+  -- Update WiFi status
+  local function update_wifi()
+    local info = network.get_wifi_info()
+    
+    if info.error then
+      icon:set_from_icon_name("network-wireless-disabled")
+      label:set_text("No WiFi Device")
+      return true
+    end
+    
+    if info.connected then
+      -- Set icon based on signal strength
+      if info.strength > 80 then
+        icon:set_from_icon_name("network-wireless-signal-excellent")
+      elseif info.strength > 60 then
+        icon:set_from_icon_name("network-wireless-signal-good")
+      elseif info.strength > 40 then
+        icon:set_from_icon_name("network-wireless-signal-ok")
+      else
+        icon:set_from_icon_name("network-wireless-signal-weak")
+      end
+      
+      label:set_text(string.format("%s (%d%%)", info.ssid, info.strength))
+    else
+      icon:set_from_icon_name("network-wireless-offline")
+      label:set_text("Disconnected")
+    end
+    
+    return true  -- Continue timer
+  end
+  
+  -- Update every 5 seconds
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, update_wifi)
+  update_wifi()  -- Initial update
+  
+  return box
+end
+```
+
+## NetworkManager Device States
+
+The `state` field in WiFi info corresponds to NetworkManager device states:
+
+```lua
+local NM_DEVICE_STATES = {
+  [0] = "Unknown",
+  [10] = "Unmanaged",
+  [20] = "Unavailable",
+  [30] = "Disconnected",
+  [40] = "Prepare",
+  [50] = "Config",
+  [60] = "Need Auth",
+  [70] = "IP Config",
+  [80] = "IP Check",
+  [90] = "Secondaries",
+  [100] = "Activated",
+  [110] = "Deactivating",
+  [120] = "Failed"
+}
+```
+
+**Example usage:**
+
+```lua
+local info = network.get_wifi_info()
+
+if info.state == 100 then
+  print("WiFi is fully activated")
+elseif info.state == 30 then
+  print("WiFi is disconnected")
+elseif info.state >= 40 and info.state < 100 then
+  print("WiFi is connecting...")
+end
+```
+
+## SSID Handling
+
+The module handles various SSID scenarios:
+
+- **Connected network**: Returns actual SSID as string
+- **Hidden network**: Returns `"oculta"` (hidden)
+- **Unknown network**: Returns `"uknow"` (unknown)
+- **Not connected**: Returns `"desconectado"` (disconnected)
+
+**Example:**
+
+```lua
+local info = network.get_wifi_info()
+
+if info.ssid == "oculta" then
+  print("Connected to hidden network")
+elseif info.ssid == "desconectado" then
+  print("Not connected")
+else
+  print("Connected to: " .. info.ssid)
+end
+```
+
+## Advanced Network Monitor
+
+```lua
+local network = require("libs.nm")
+local lgi = require("lgi")
+local NM = lgi.require("NM")
+local GLib = lgi.GLib
+
+local function create_network_monitor()
+  local previous_connected = false
+  
+  local function check_connectivity()
+    local connected = network.is_wifi_connected()
+    
+    -- Connection state changed
+    if connected ~= previous_connected then
+      if connected then
+        local info = network.get_wifi_info()
+        print("Connected to " .. info.ssid)
+        on_wifi_connected(info)
+      else
+        print("WiFi disconnected")
+        on_wifi_disconnected()
+      end
+      previous_connected = connected
+    end
+    
+    -- Update signal strength if connected
+    if connected then
+      local strength = network.get_wifi_strength()
+      update_signal_indicator(strength)
+      
+      -- Warn if signal is weak
+      if strength < 30 then
+        show_weak_signal_warning()
+      end
+    end
+    
+    return true
+  end
+  
+  -- Check every 3 seconds
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 3, check_connectivity)
+  check_connectivity()  -- Initial check
+end
+
+function on_wifi_connected(info)
+  print("Online! Network: " .. info.ssid)
+  print("Signal: " .. info.strength .. "%")
+end
+
+function on_wifi_disconnected()
+  print("Offline!")
+end
+
+function update_signal_indicator(strength)
+  -- Update UI with signal strength
+end
+
+function show_weak_signal_warning()
+  print("Warning: Weak WiFi signal")
+end
+```
+
+## Implementation Details
+
+### Singleton Client
+
+The module uses a singleton NetworkManager client to avoid creating multiple connections:
+
+```lua
+-- libs/nm.lua:9-15
+local nm_client = nil
+local function get_client()
+  if not nm_client then
+    nm_client = NM.Client.new()
+  end
+  return nm_client
+end
+```
+
+### Device Detection
+
+The module finds WiFi devices by iterating through all NetworkManager devices and checking their type:
+
+```lua
+-- libs/nm.lua:27-38
+local function get_wifi_device()
+  local client = get_client()
+  if not client then return nil end
+
+  local devices = client:get_devices() or {}
+  for _, dev in ipairs(devices) do
+    if tostring(dev:get_device_type()) == "WIFI" then
+      return dev
+    end
+  end
+  return nil
+end
+```
+
+### Memory Management
+
+The module explicitly nils device references after use to help with garbage collection:
+
+```lua
+-- libs/nm.lua:64
+wifi_dev = nil
+```
+
+## Dependencies
+
+- **LGI**: Lua GObject Introspection bindings
+- **NetworkManager**: Network connectivity management
+- **GLib**: Core utilities
+
+## Limitations
+
+- Only supports WiFi devices (not Ethernet or other connection types)
+- Looks for first WiFi device found
+- No support for connecting/disconnecting networks (read-only)
+- No support for listing available networks
+- Hard-coded to look for device type "WIFI"

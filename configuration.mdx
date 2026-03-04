@@ -1,0 +1,395 @@
+---
+title: "Configuration"
+description: "Customize CandyShell's appearance, pinned apps, and behavior"
+---
+
+CandyShell stores its configuration in `~/.config/candy-shell/config.json` and can be customized through both the configuration file and interactive UI controls.
+
+## Configuration File Location
+
+CandyShell automatically creates its configuration directory on first run:
+
+```bash
+~/.config/candy-shell/
+├── config.json          # Main configuration file
+```
+
+The configuration is managed by the `libs/theme.lua` module:
+
+```lua libs/theme.lua
+local config_dir = GLib.get_user_config_dir() .. "/candy-shell"
+local config_path = config_dir .. "/config.json"
+```
+
+## Configuration Structure
+
+The `config.json` file contains theme and wallpaper settings:
+
+```json config.json
+{
+  "wallpaper": "/path/to/your/wallpaper.png",
+  "theme_mode": "dark"
+}
+```
+
+<Note>
+If the configuration file doesn't exist, CandyShell will use defaults: `res/wall.png` for wallpaper and `dark` for theme mode.
+</Note>
+
+## Wallpaper Configuration
+
+### Setting Wallpaper via UI
+
+CandyShell provides an interactive way to change wallpaper:
+
+<Steps>
+  <Step title="Left-click the desktop">
+    Click anywhere on the desktop background with the **left mouse button** to open the wallpaper picker.
+  </Step>
+  
+  <Step title="Select an image">
+    Choose an image file (JPEG, PNG, or WebP format). The wallpaper will update immediately.
+  </Step>
+  
+  <Step title="Automatic theme generation">
+    CandyShell uses **matugen** to generate a Material You color scheme from your wallpaper automatically.
+  </Step>
+</Steps>
+
+This is handled in the main.lua file:
+
+```lua main.lua:214-231
+local click_controller = Gtk.GestureClick.new()
+click_controller:set_button(0) 
+
+function click_controller:on_pressed(n_press, x, y)
+  local btn = self:get_current_button()
+
+  if btn == 1 then
+    wp_file_dialog:open(nil, nil, function(dialog, result)
+      local file, err = dialog:open_finish(result)
+      if file then
+        current_wp_path = file:get_path()
+        wallpaper:set_file(file)
+        pcall(function() 
+          Theme.apply(current_wp_path, current_mode) 
+          Theme.save_settings(current_wp_path, current_mode)
+        end)
+      end
+    end)
+  end
+end
+```
+
+### Setting Wallpaper via Configuration
+
+You can also manually edit the configuration file:
+
+```json
+{
+  "wallpaper": "/home/username/Pictures/my-wallpaper.jpg",
+  "theme_mode": "dark"
+}
+```
+
+<Warning>
+Use absolute paths for wallpaper files. Relative paths may not work correctly.
+</Warning>
+
+## Theme Configuration
+
+### Switching Between Light and Dark Mode
+
+Right-click anywhere on the desktop to toggle between light and dark themes:
+
+```lua main.lua:233-243
+elseif btn == 3 then
+  if current_mode == "light" then
+    current_mode = "dark"
+  else
+    current_mode = "light"
+  end
+  pcall(function() 
+    Theme.apply(current_wp_path, current_mode) 
+    Theme.save_settings(current_wp_path, current_mode)
+  end)
+end
+```
+
+<Steps>
+  <Step title="Right-click desktop">
+    Right-click anywhere on the desktop background
+  </Step>
+  
+  <Step title="Theme toggles automatically">
+    The theme switches between `light` and `dark` mode instantly
+  </Step>
+  
+  <Step title="Settings persist">
+    Your theme preference is saved to `config.json`
+  </Step>
+</Steps>
+
+### How Dynamic Theming Works
+
+CandyShell uses **matugen** to extract colors from your wallpaper and generate a Material You color palette:
+
+```lua libs/theme.lua:45-81
+function M.apply(image_path, selected_mode)
+  local cmd = string.format("matugen image '%s' -j hex", image_path)
+  local handle = io.popen(cmd)
+  local result = handle:read("*a")
+  handle:close()
+
+  -- Parse JSON color palette
+  local parser = Json.Parser.new()
+  local success, err = parser:load_from_data(result, -1)
+
+  local root = parser:get_root():get_object()
+  local colors_obj = root:get_object_member("colors")
+  local palette = colors_obj:get_object_member(selected_mode)
+
+  -- Generate CSS variables
+  local css_lines = {}
+  for _, name in ipairs(palette:get_members()) do
+    local value = palette:get_string_member(name)
+    table.insert(css_lines, string.format("@define-color %s %s;", name, value))
+  end
+
+  local final_css = table.concat(css_lines, "\n")
+  css_provider:load_from_data(final_css, #final_css)
+end
+```
+
+The generated colors are used throughout the UI via CSS variables like `@background`, `@primary`, `@surface`, etc.
+
+## Pinned Applications
+
+### Configuring Pinned Apps
+
+Pinned applications appear in the bottom bar. To customize them, edit the `pinned_apps` array in `main.lua`:
+
+```lua main.lua:151-158
+local pinned_apps = { 
+  "org.telegram.desktop._7b8e57b5241cb68ef979736501a5169d.desktop", 
+  "thunar.desktop", 
+  "vlc.desktop", 
+  "firefox.desktop", 
+  "sublime_text.desktop", 
+  "kitty.desktop" 
+}
+```
+
+<Steps>
+  <Step title="Find .desktop file names">
+    List available applications:
+    ```bash
+    ls /usr/share/applications/
+    ls ~/.local/share/applications/
+    ```
+  </Step>
+  
+  <Step title="Add to pinned_apps array">
+    Copy the `.desktop` filename and add it to the array:
+    ```lua
+    local pinned_apps = {
+      "firefox.desktop",
+      "code.desktop",
+      "org.gnome.Nautilus.desktop",
+      -- Add your apps here
+    }
+    ```
+  </Step>
+  
+  <Step title="Restart CandyShell">
+    Exit and restart CandyShell to see the changes:
+    ```bash
+    swaymsg exit  # Then restart
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Pinned apps are loaded using the `libs/gapps.lua` module, which reads `.desktop` files and extracts app information including icons and launch commands.
+</Note>
+
+## CSS Customization
+
+### Custom Styling
+
+CandyShell loads custom styles from `custom.css` in the application directory:
+
+```lua main.lua:166-169
+local provider = Gtk.CssProvider()
+provider:load_from_path("custom.css")
+local display = bg_win:get_display()
+Gtk.StyleContext.add_provider_for_display(display, provider, 600)
+```
+
+You can modify `custom.css` to customize the appearance:
+
+```css custom.css
+/* Wallpaper styling */
+.wallpaper {
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  border: 1px solid @outline_variant;
+}
+
+/* Bottom bar styling */
+.barra-shell {
+  background-color: @surface_container;
+  border-radius: 15px;
+}
+
+/* System status text */
+.sys-status-text {
+  font-family: "Roboto", sans-serif;
+  font-size: 14px;
+  color: @on_surface;
+}
+```
+
+<Warning>
+CSS changes require restarting CandyShell to take effect.
+</Warning>
+
+## Dashboard Configuration
+
+### User Profile
+
+Edit the dashboard profile in `dashboard.lua`:
+
+```lua dashboard.lua:485-486
+local name_label = Gtk.Label.new('~Jorge Polo ')
+name_label:add_css_class('name_label')
+```
+
+Replace with your own name or handle.
+
+### Profile Images
+
+Update profile images in the `res/` directory:
+
+- `res/icon.jpg` - Circular profile icon (100x100px recommended)
+- `res/pfp.jpg` - Background profile picture
+
+### Weather Widget
+
+Configure weather location in `dashboard.lua`:
+
+```lua dashboard.lua:70
+w.update(10, 10.48, -66.90, function(data)
+  -- 10 = timeout, 10.48 = latitude, -66.90 = longitude
+end)
+```
+
+Replace coordinates with your location:
+
+```lua
+w.update(10, YOUR_LATITUDE, YOUR_LONGITUDE, function(data)
+  -- Updates weather for your location
+end)
+```
+
+<Note>
+You can find your coordinates using services like [LatLong.net](https://www.latlong.net/) or Google Maps.
+</Note>
+
+## Layer Shell Configuration
+
+CandyShell uses two windows with different layer shell configurations:
+
+### Background Window (Desktop)
+
+```lua main.lua:171-181
+LayerShell.init_for_window(bg_win)
+LayerShell.set_layer(bg_win, LayerShell.Layer.BACKGROUND)
+LayerShell.set_exclusive_zone(bg_win, -1)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.LEFT, true)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.RIGHT, true)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.TOP, true)
+LayerShell.set_anchor(bg_win, LayerShell.Edge.BOTTOM, true)
+```
+
+### Bottom Bar Window
+
+```lua main.lua:273-284
+LayerShell.init_for_window(bar_win)
+LayerShell.set_layer(bar_win, LayerShell.Layer.TOP)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.LEFT, true)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.RIGHT, true)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.BOTTOM, true)
+LayerShell.set_margin(bar_win, LayerShell.Edge.LEFT, 15)
+LayerShell.set_margin(bar_win, LayerShell.Edge.RIGHT, 15)
+LayerShell.set_margin(bar_win, LayerShell.Edge.BOTTOM, 3)
+LayerShell.auto_exclusive_zone_enable(bar_win)
+```
+
+<Tip>
+Modifying layer shell settings allows you to change bar position, size, and margins to suit your preferences.
+</Tip>
+
+## Advanced Configuration
+
+### Update Intervals
+
+Configure how often widgets update:
+
+```lua main.lua:23-26
+-- Garbage collection interval
+GLib.timeout_add_seconds(GLib.PRIORITY_LOW, 30, function()
+  collectgarbage("collect")
+  return true
+end)
+```
+
+```lua main.lua:68
+-- Battery update interval (30 seconds)
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, update_battery)
+```
+
+```lua main.lua:99
+-- WiFi update interval (15 seconds)
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 15, update_wifi)
+```
+
+### Application ID
+
+The application ID is used for DBus and desktop integration:
+
+```lua main.lua:19
+local appID = "io.github.poloz_z.CandyShell.Lua.Gtk4.Shell"
+```
+
+## Backup and Reset
+
+### Backing Up Configuration
+
+```bash
+# Backup your config
+cp ~/.config/candy-shell/config.json ~/candyshell-backup.json
+
+# Backup custom resources
+cp -r ~/path/to/candyshell/res ~/candyshell-res-backup
+```
+
+### Resetting to Defaults
+
+```bash
+# Remove configuration
+rm ~/.config/candy-shell/config.json
+
+# CandyShell will recreate with defaults on next run
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Running CandyShell" icon="play" href="/running">
+    Learn how to run and integrate CandyShell with Sway
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Review installation and dependencies
+  </Card>
+</CardGroup>

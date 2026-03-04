@@ -1,0 +1,600 @@
+---
+title: Creating Custom Widgets
+description: Learn how to build custom dashboard widgets for CandyShell
+---
+
+CandyShell's dashboard is built with modular widgets that display information and provide interactive controls. This guide will teach you how to create your own custom widgets.
+
+## Widget Architecture
+
+Widgets in CandyShell are Lua functions that return GTK4 containers. They follow a consistent pattern:
+
+```lua
+local function create_my_widget()
+  -- Create container
+  local widget_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+  widget_box:add_css_class("my-widget-class")
+  
+  -- Add child elements
+  local label = Gtk.Label.new("Hello!")
+  widget_box:append(label)
+  
+  -- Set up updates (if needed)
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, function()
+    label:set_text("Updated: " .. os.date("%H:%M"))
+    return true  -- Keep timer running
+  end)
+  
+  return widget_box
+end
+```
+
+### Widget Lifecycle
+
+<Steps>
+  <Step title="Creation">
+    The widget function is called once during dashboard initialization. Create your GTK container and all child widgets.
+  </Step>
+  
+  <Step title="Initial Update">
+    Perform the first data fetch or state update immediately after creating the widget.
+  </Step>
+  
+  <Step title="Periodic Updates">
+    Use `GLib.timeout_add_seconds()` or `GLib.timeout_add()` to schedule recurring updates.
+  </Step>
+  
+  <Step title="Cleanup">
+    GTK and LGI handle memory management automatically, but you can implement cleanup for network connections or file handles.
+  </Step>
+</Steps>
+
+## Building Your First Widget
+
+Let's create a simple disk usage widget that displays available space.
+
+<Steps>
+  <Step title="Create the widget function">
+    Add this to `dashboard.lua` or create a new file in `libs/`:
+    
+    ```lua
+    local function create_disk_widget()
+      local System = require("libs.system_i")
+      
+      local disk_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 5)
+      disk_box:add_css_class("disk-widget")
+      disk_box:set_size_request(150, 80)
+      
+      local title = Gtk.Label.new("Disk Usage")
+      title:add_css_class("widget-title")
+      
+      local usage_label = Gtk.Label.new("Loading...")
+      usage_label:add_css_class("widget-value")
+      
+      disk_box:append(title)
+      disk_box:append(usage_label)
+      
+      local function update_disk()
+        local usage = System.get_disk_usage('/')
+        usage_label:set_text(string.format("%.1f%% used", usage))
+        return true
+      end
+      
+      -- Update every 30 seconds
+      GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, update_disk)
+      update_disk()  -- Initial update
+      
+      return disk_box
+    end
+    ```
+  </Step>
+  
+  <Step title="Add CSS styling">
+    In `custom.css`, add styles for your widget:
+    
+    ```css
+    .disk-widget {
+      background-color: @surface_container;
+      border-radius: 16px;
+      padding: 12px;
+      border: 1px solid @outline_variant;
+    }
+    
+    .widget-title {
+      font-family: "Roboto", sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: @on_surface_variant;
+    }
+    
+    .widget-value {
+      font-family: "Roboto", sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: @primary;
+    }
+    ```
+  </Step>
+  
+  <Step title="Add to dashboard">
+    In the `create_dashboard` function, add your widget to one of the layout boxes:
+    
+    ```lua
+    -- Around line 543 in dashboard.lua
+    local h_right_box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 10)
+    h_right_box:append(create_weather_widget())
+    h_right_box:append(create_sys_widget())
+    h_right_box:append(create_disk_widget())  -- Add your widget
+    ```
+  </Step>
+</Steps>
+
+## Advanced Widget Examples
+
+### Interactive Button Widget
+
+Create a widget with clickable buttons:
+
+```lua
+local function create_control_widget()
+  local box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 10)
+  box:add_css_class("control-widget")
+  
+  local function create_button(icon, command)
+    local btn = Gtk.Button.new()
+    local label = Gtk.Label.new(icon)
+    btn:set_child(label)
+    btn:add_css_class("control-btn")
+    
+    btn.on_clicked = function()
+      GLib.spawn_command_line_sync(command)
+    end
+    
+    return btn
+  end
+  
+  box:append(create_button("󰐥", "poweroff"))
+  box:append(create_button("", "reboot"))
+  box:append(create_button("󰌾", "swaylock"))
+  
+  return box
+end
+```
+
+### Widget with Custom Drawing
+
+Use GTK's DrawingArea for custom graphics:
+
+```lua
+local function create_circular_progress_widget()
+  local box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 5)
+  box:add_css_class("progress-widget")
+  
+  local drawing_area = Gtk.DrawingArea.new()
+  drawing_area:set_size_request(100, 100)
+  
+  local current_value = 0
+  
+  local function draw_circle(area, cr, width, height)
+    local cairo = require('lgi').cairo
+    local center_x = width / 2
+    local center_y = height / 2
+    local radius = math.min(width, height) / 2 - 10
+    
+    -- Background circle
+    cr:set_source_rgba(0.2, 0.2, 0.2, 0.3)
+    cr:set_line_width(8)
+    cr:arc(center_x, center_y, radius, 0, 2 * math.pi)
+    cr:stroke()
+    
+    -- Progress arc
+    cr:set_source_rgb(0.3, 0.6, 1.0)
+    cr:set_line_width(8)
+    cr:set_line_cap(cairo.LineCap.ROUND)
+    local end_angle = (current_value / 100) * 2 * math.pi - math.pi / 2
+    cr:arc(center_x, center_y, radius, -math.pi / 2, end_angle)
+    cr:stroke()
+  end
+  
+  drawing_area:set_draw_func(draw_circle, nil, nil)
+  
+  local function update_progress()
+    local System = require("libs.system_i")
+    current_value = System.get_cpu_used()
+    drawing_area:queue_draw()
+    return true
+  end
+  
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, update_progress)
+  update_progress()
+  
+  box:append(drawing_area)
+  return box
+end
+```
+
+### Network Data Widget
+
+Fetch data from an API:
+
+```lua
+local function create_crypto_widget()
+  local box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 5)
+  box:add_css_class("crypto-widget")
+  
+  local price_label = Gtk.Label.new("Loading...")
+  price_label:add_css_class("crypto-price")
+  box:append(price_label)
+  
+  local function update_price()
+    GLib.spawn_async(nil, 
+      {'curl', '-s', 'https://api.coinbase.com/v2/prices/BTC-USD/spot'},
+      nil,
+      GLib.SpawnFlags.SEARCH_PATH,
+      nil,
+      function(pid, stdout, stderr, status)
+        if status == 0 then
+          -- Parse JSON response
+          local lgi = require('lgi')
+          local Json = lgi.Json
+          local parser = Json.Parser.new()
+          local ok = parser:load_from_data(stdout, -1)
+          
+          if ok then
+            local root = parser:get_root():get_object()
+            local data = root:get_object_member("data")
+            local amount = data:get_string_member("amount")
+            
+            GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+              price_label:set_text("BTC: $" .. amount)
+              return false
+            end)
+          end
+        end
+      end
+    )
+    return true
+  end
+  
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, update_price)
+  update_price()
+  
+  return box
+end
+```
+
+<Warning>
+When spawning external processes or making network requests, always update the UI in the main thread using `GLib.idle_add()`.
+</Warning>
+
+## Widget Styling Best Practices
+
+### Using Material Design 3 Tokens
+
+CandyShell uses MD3 color tokens that automatically adapt to your theme:
+
+<Tabs>
+  <Tab title="Surfaces">
+    ```css
+    .my-widget {
+      background-color: @surface_container;  /* Standard surface */
+      color: @on_surface;                     /* Text on surface */
+    }
+    
+    .my-widget-elevated {
+      background-color: @surface_container_high;  /* Elevated surface */
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Emphasis">
+    ```css
+    .widget-primary {
+      background-color: @primary;
+      color: @on_primary;
+    }
+    
+    .widget-secondary {
+      background-color: @secondary;
+      color: @on_secondary;
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Borders">
+    ```css
+    .widget-outlined {
+      border: 1px solid @outline;
+      background-color: transparent;
+    }
+    
+    .widget-subtle {
+      border: 1px solid @outline_variant;  /* Lighter border */
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Responsive Sizing
+
+Use GTK's sizing properties to make widgets adapt:
+
+```lua
+local widget = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+
+-- Minimum size
+widget:set_size_request(200, 100)
+
+-- Expand to fill available space
+widget.hexpand = true
+widget.vexpand = true
+
+-- Alignment
+widget.halign = Gtk.Align.CENTER  -- START, END, FILL, CENTER
+widget.valign = Gtk.Align.START
+```
+
+### Consistent Spacing
+
+```lua
+-- Box spacing (gap between children)
+local box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)  -- 10px gap
+
+-- Margins (external spacing)
+box.margin_start = 10
+box.margin_end = 10
+box.margin_top = 5
+box.margin_bottom = 5
+
+-- Padding is set in CSS
+```
+
+## Widget Performance Tips
+
+### Efficient Updates
+
+<Tabs>
+  <Tab title="Good">
+    ```lua
+    -- Update only when data changes
+    local last_value = nil
+    
+    local function update()
+      local new_value = get_data()
+      if new_value ~= last_value then
+        label:set_text(tostring(new_value))
+        last_value = new_value
+      end
+      return true
+    end
+    ```
+  </Tab>
+  
+  <Tab title="Bad">
+    ```lua
+    -- Updating every time even if unchanged
+    local function update()
+      local value = get_data()
+      label:set_text(tostring(value))  -- Updates GTK every time
+      return true
+    end
+    ```
+  </Tab>
+</Tabs>
+
+### Memory Management
+
+```lua
+local function create_widget()
+  local pixbuf = nil
+  
+  local function update()
+    -- Clean up previous resources
+    if pixbuf then
+      pixbuf = nil
+    end
+    
+    -- Load new image
+    pixbuf = GdkPixbuf.Pixbuf.new_from_file("image.png")
+    image:set_from_pixbuf(pixbuf)
+    
+    return true
+  end
+  
+  -- Trigger garbage collection periodically
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, function()
+    collectgarbage("step")
+    return true
+  end)
+  
+  return widget
+end
+```
+
+### Async Operations
+
+Always use async functions for long-running operations:
+
+```lua
+local function fetch_data_async(callback)
+  GLib.spawn_async(nil,
+    {'bash', '-c', 'sleep 2 && echo "data"'},
+    nil,
+    GLib.SpawnFlags.SEARCH_PATH,
+    nil,
+    function(pid, stdout, stderr, status)
+      if status == 0 then
+        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+          callback(stdout)
+          return false
+        end)
+      end
+    end
+  )
+end
+```
+
+## Real-World Widget: System Monitor
+
+Here's a complete example from CandyShell's system widget:
+
+```lua dashboard.lua (lines 99-166)
+local function create_sys_widget()
+  local System = require("libs.system_i")
+  local Gtk = lgi.Gtk
+  local GLib = lgi.GLib
+
+  local main_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 0)
+  main_box:add_css_class("sys-status-card")
+  main_box:set_size_request(-1, 100)
+
+  local function create_row(icon, color_class, alignment)
+    local row = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 12)
+    row:set_valign(Gtk.Align.CENTER)
+    row:set_vexpand(true) 
+
+    local icon_label = Gtk.Label.new(icon)
+    icon_label:add_css_class("sys-icon-small")
+
+    local bar = Gtk.LevelBar.new()
+    bar:set_orientation(Gtk.Orientation.HORIZONTAL)
+    bar:set_min_value(0)
+    bar:set_max_value(100)
+    bar:set_hexpand(true)
+    bar:set_valign(Gtk.Align.CENTER)
+    bar:set_size_request(-1, 2)
+    bar:add_css_class("sys-bar-ultra-slim")
+    if color_class then bar:add_css_class(color_class) end
+
+    row:append(icon_label)
+    row:append(bar)
+    
+    return row, bar
+  end
+
+  local cpu_row, cpu_bar = create_row("", "bar-cpu")
+  local ram_row, ram_bar = create_row("", "bar-ram")
+  local disk_row, disk_bar = create_row("󰋊", "bar-disk")
+
+  main_box:append(cpu_row)
+  main_box:append(ram_row)
+  main_box:append(disk_row)
+
+  local function update_stats()
+    local cpu_usage = System.get_cpu_used()
+    local mem_info = System.get_mem_info()
+    local disk_usage = System.get_disk_usage('/')
+
+    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+      cpu_bar:set_value(cpu_usage)
+      ram_bar:set_value(mem_info.ram.percent_real_used)
+      disk_bar:set_value(disk_usage)
+      return false
+    end)
+    return true
+  end
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, update_stats)
+  update_stats()
+
+  return main_box
+end
+```
+
+This widget demonstrates:
+- Modular component creation (`create_row`)
+- Multiple data sources (CPU, RAM, disk)
+- Efficient updates using `GLib.idle_add`
+- CSS class-based styling
+- GTK LevelBar for visual progress
+
+## Common Widget Patterns
+
+### Stateful Widgets
+
+```lua
+local function create_toggle_widget()
+  local state = false
+  
+  local button = Gtk.Button.new()
+  local label = Gtk.Label.new("OFF")
+  button:set_child(label)
+  
+  button.on_clicked = function()
+    state = not state
+    label:set_text(state and "ON" or "OFF")
+    button:remove_css_class(state and "btn-off" or "btn-on")
+    button:add_css_class(state and "btn-on" or "btn-off")
+  end
+  
+  return button
+end
+```
+
+### Conditional Rendering
+
+```lua
+local function create_conditional_widget()
+  local container = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+  local current_widget = nil
+  
+  local function render(condition)
+    -- Remove old widget
+    if current_widget then
+      container:remove(current_widget)
+      current_widget = nil
+    end
+    
+    -- Add new widget based on condition
+    if condition then
+      current_widget = Gtk.Label.new("Condition is true")
+    else
+      current_widget = Gtk.Label.new("Condition is false")
+    end
+    
+    container:append(current_widget)
+  end
+  
+  render(false)  -- Initial render
+  return container
+end
+```
+
+## Debugging Widgets
+
+### Enable GTK Debug Output
+
+```bash
+GTK_DEBUG=interactive lua main.lua
+```
+
+### Print Debug Info
+
+```lua
+local function debug_widget(widget, name)
+  print(string.format("Widget: %s", name))
+  print(string.format("  Visible: %s", tostring(widget:get_visible())))
+  print(string.format("  Size: %dx%d", widget:get_width(), widget:get_height()))
+end
+```
+
+### Check for Memory Leaks
+
+```lua
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, function()
+  collectgarbage("collect")
+  print("Memory: " .. collectgarbage("count") .. " KB")
+  return true
+end)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Lua API Reference" icon="code" href="/development/lua-api">
+    Explore the complete API documentation
+  </Card>
+  <Card title="Customization Guide" icon="palette" href="/development/customization">
+    Learn how to customize CandyShell's appearance
+  </Card>
+</CardGroup>

@@ -1,0 +1,685 @@
+---
+title: 'Widget System'
+description: 'Learn how to create, style, and manage custom widgets in CandyShell'
+icon: 'shapes'
+---
+
+## Widget System Overview
+
+CandyShell's widget system is built on **GTK4** using Lua, providing a flexible architecture for creating self-contained, stateful UI components. Widgets manage their own lifecycle, updates, and styling.
+
+<Note>
+  All widgets in CandyShell follow a factory function pattern that returns configured GTK widgets with embedded update logic.
+</Note>
+
+## Widget Lifecycle
+
+### Factory Function Pattern
+
+Widgets are created using factory functions that:
+
+1. Create GTK widget instances
+2. Configure appearance and behavior
+3. Set up update timers
+4. Return the configured widget
+
+```lua
+local function create_widget_name()
+  -- 1. Create widget
+  local widget = Gtk.Label.new("Initial Value")
+  
+  -- 2. Configure
+  widget:add_css_class("widget-style")
+  widget.halign = Gtk.Align.CENTER
+  
+  -- 3. Set up updates
+  local function update_widget()
+    widget:set_text(get_current_value())
+    return true  -- Return true to keep timer running
+  end
+  
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, update_widget)
+  update_widget()  -- Initial call
+  
+  -- 4. Return widget
+  return widget
+end
+```
+
+<Accordion title="Why Factory Functions?">
+  Factory functions provide several benefits:
+  
+  - **Encapsulation** - State is local to the function closure
+  - **Reusability** - Call the factory multiple times for multiple instances
+  - **Self-contained** - Each widget manages its own lifecycle
+  - **Garbage Collection** - Closures are cleaned up when widget is destroyed
+</Accordion>
+
+## Core Widget Examples
+
+### Simple Label Widget
+
+The time label demonstrates the simplest widget pattern:
+
+```lua
+-- main.lua:104-115
+local function create_time_label()
+  local time_label = Gtk.Label.new(os.date("%H:%M"))
+  time_label:add_css_class("sys-status-text")
+
+  local function update_time()
+    time_label:set_text(os.date("%H:%M"))
+    return true
+  end
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, update_time)
+  return time_label
+end
+```
+
+<Steps>
+  <Step title="Create Label">
+    Initialize with current time using `os.date()`
+  </Step>
+  <Step title="Style Widget">
+    Add CSS class for styling (see CSS section below)
+  </Step>
+  <Step title="Update Timer">
+    Update every 1 second using `GLib.timeout_add_seconds`
+  </Step>
+  <Step title="Return Widget">
+    Return the configured label for use in layouts
+  </Step>
+</Steps>
+
+### System Info Widget
+
+The battery label shows data fetching and icon selection:
+
+```lua
+-- main.lua:28-71
+local function create_battery_label()
+  local battery_label = Gtk.Label.new("")
+  battery_label:set_use_markup(true)
+  battery_label:add_css_class("sys-status-text")
+
+  -- Icon map for different battery levels
+  local fa_icons = {
+    charging = "󰂄", full = "󰁹", battery_90 = "󰂂",
+    battery_80 = "󰂁", battery_70 = "󰂀", battery_60 = "󰁿",
+    battery_50 = "󰁾", battery_40 = "󰁽", battery_30 = "󰁼",
+    battery_20 = "󰁻", battery_10 = "󰁺", battery_0 = "󰂎"
+  }
+
+  local function update_battery()
+    local percentage = SystemInfo.get_battery_percentage() or 0
+    local state = SystemInfo.get_battery_state() or 0
+    local is_charging = (state == 1)
+    local icon = ""
+
+    -- Icon selection logic based on state and percentage
+    if is_charging then
+      icon = fa_icons.charging
+    elseif percentage >= 95 then icon = fa_icons.full
+    elseif percentage >= 85 then icon = fa_icons.battery_90
+    -- ... more conditions
+    end
+
+    battery_label:set_markup(string.format(
+      '<span>%s %d%%</span>',
+      icon, math.floor(percentage)
+    ))
+    return true
+  end
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, update_battery)
+  update_battery()
+  return battery_label
+end
+```
+
+<Tabs>
+  <Tab title="Icon Selection">
+    Icons are selected based on battery percentage ranges using conditional logic. Nerd Fonts provides the battery icon glyphs.
+  </Tab>
+  <Tab title="Markup Usage">
+    `set_use_markup(true)` enables Pango markup for rich text formatting. The `<span>` tag allows inline styling.
+  </Tab>
+  <Tab title="Update Frequency">
+    Battery updates every 30 seconds to balance responsiveness with CPU usage. Frequent battery queries can impact performance.
+  </Tab>
+</Tabs>
+
+### Container Widget
+
+The system status box combines multiple widgets:
+
+```lua
+-- main.lua:117-127
+local function create_system_status_box()
+  local box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 20) 
+  box:add_css_class("sys-status-box")
+  box.valign = Gtk.Align.CENTER
+
+  box:append(create_wifi_label())    
+  box:append(create_battery_label()) 
+  box:append(create_time_label())
+
+  return box
+end
+```
+
+<Note>
+  Container widgets compose other widgets into layouts. The `Gtk.Box` widget arranges children horizontally or vertically with spacing.
+</Note>
+
+## Complex Widget: Music Player
+
+The music player is the most complex widget in CandyShell, featuring:
+
+- Dynamic styling based on album art
+- Cairo-based custom drawing
+- Animation system
+- State management
+
+### Widget Structure
+
+```lua
+-- dashboard.lua:168-384
+local function c_music_box()
+  -- State variables
+  local animation_time = 0.0
+  local current_progress = 0.0
+  local is_playing_state = false
+  local wave_color = {r = 1, g = 1, b = 1}
+  
+  -- Create container
+  local music_box = Gtk.CenterBox.new()
+  music_box:set_name("simple_music_box")
+  music_box:set_size_request(450, 110)
+  music_box:add_css_class("simple-music-box")
+  
+  -- Create components
+  local album_art = Gtk.Image { pixel_size = 110 }
+  local title_label = Gtk.Label { label = "Título" }
+  local artist_label = Gtk.Label { label = "Artista" }
+  local progress_area = Gtk.DrawingArea.new()
+  
+  -- Layout
+  music_box.start_widget = album_art
+  music_box.center_widget = center_layout
+  music_box.end_widget = control_buttons
+  
+  return music_box
+end
+```
+
+### Custom Drawing with Cairo
+
+The progress indicator uses Cairo for custom drawing:
+
+```lua
+-- dashboard.lua:226-273
+local function draw_progress_wave(area, cr, width, height)
+  local y_center = height / 2
+  local active_length = width * current_progress
+  local line_height = 3.0
+
+  -- Draw inactive portion (gray)
+  if active_length < width then
+    cr:set_source_rgba(0.5, 0.5, 0.5, 0.25)
+    cr:set_line_width(line_height)
+    cr:move_to(active_length, y_center)
+    cr:line_to(width, y_center)
+    cr:stroke()
+  end
+
+  -- Draw active portion with wave animation
+  cr:set_source_rgb(wave_color.r, wave_color.g, wave_color.b)
+  cr:set_line_width(line_height)
+  
+  if current_progress > 0 then
+    local wave_amplitude = is_playing_state and 3.5 or 0.0
+    local wave_frequency = 6.0
+    local wave_speed = 6.0
+    
+    cr:move_to(0, y_center)
+    for i = 1, num_segments do
+      local x_pos = (i / num_segments) * active_length
+      local wave_offset = math.sin(
+        (x_pos / width) * math.pi * wave_frequency * 2 + 
+        animation_time * wave_speed
+      )
+      local y_pos = y_center + (wave_offset * wave_amplitude)
+      cr:line_to(x_pos, y_pos)
+    end
+    cr:stroke()
+  end
+end
+
+progress_area:set_draw_func(draw_progress_wave, nil, nil)
+```
+
+<Accordion title="Cairo Drawing Concepts">
+  Cairo is a 2D graphics library that provides:
+  
+  - **Paths** - Define shapes with move_to, line_to, arc, etc.
+  - **Strokes** - Draw path outlines with set_line_width, set_source_rgb
+  - **Fills** - Fill path interiors
+  - **Transformations** - Rotate, scale, translate
+  - **Compositing** - Alpha blending, masks
+  
+  The `set_draw_func` callback is called whenever the widget needs repainting.
+</Accordion>
+
+### Animation System
+
+```lua
+-- dashboard.lua:375-381
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, function()
+  if is_playing_state then
+    animation_time = animation_time + 0.016
+    progress_area:queue_draw()  -- Request redraw
+  end
+  return true
+end)
+```
+
+The animation runs at ~60 FPS (16ms per frame) and only animates when music is playing.
+
+### Dynamic Styling
+
+Colors are updated based on album art:
+
+```lua
+-- dashboard.lua:328-372
+local function update_music_box()
+  local bg_color, text_color = music.get_album_colors()
+  wave_color = hex_to_rgb(text_color)
+  
+  local dynamic_css = base_css .. string.format([[
+    #simple_music_box { 
+      background-color: %s; 
+      background-image: radial-gradient(
+        circle at center, %s 0%%, shade(%s, 0.6) 100%%
+      ); 
+    }
+    #music_artist, #music_title, .music-control-btn { 
+      color: %s; 
+    }
+  ]], bg_color, bg_color, bg_color, text_color)
+
+  music_style_provider:load_from_data(dynamic_css, #dynamic_css)
+  return true
+end
+
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, update_music_box)
+```
+
+## Calendar Widget
+
+The calendar demonstrates grid layouts and date calculations:
+
+```lua
+-- calendario.lua:38-95
+function M.crear_calendario(mes, anio)
+  local calendario_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+  calendario_box:add_css_class("box_dashboard")
+
+  -- Header
+  local cal_mes = Gtk.Label.new(M.wmonths[mes] .. ", " .. anio)
+  cal_mes:add_css_class("cal-header")
+
+  -- Grid for days
+  local cal_dias = Gtk.Grid.new()
+  
+  -- Calculate days in month and starting day
+  local total_dias = M.dias_en_mes(mes, anio)
+  local dia_inicio = M.obtener_dia_inicio(mes, anio)
+  local dia_actual = (mes == f.month and anio == f.year) and f.day or nil
+
+  -- Fill grid
+  local fila = 2
+  local dia_numero = 1
+
+  while dia_numero <= total_dias do
+    for c = 1, 7 do
+      if (fila == 2 and c < dia_inicio) or dia_numero > total_dias then
+        -- Empty cell
+        local vacio = Gtk.Label.new("")
+        cal_dias:attach(vacio, c, fila, 1, 1)
+      else
+        -- Day cell
+        local cal_dia = Gtk.Label.new(tostring(dia_numero))
+        cal_dia:add_css_class("cal-day")
+        
+        if dia_numero == dia_actual then
+          cal_dia:add_css_class("cal-today")
+        end
+        
+        cal_dias:attach(cal_dia, c, fila, 1, 1)
+        dia_numero = dia_numero + 1
+      end
+    end
+    fila = fila + 1
+  end
+
+  calendario_box:append(cal_mes)
+  calendario_box:append(cal_dias)
+  return calendario_box
+end
+```
+
+<Tabs>
+  <Tab title="Grid Layout">
+    `Gtk.Grid` positions widgets in rows and columns using `attach(widget, col, row, width, height)`. Perfect for calendar layouts.
+  </Tab>
+  <Tab title="Date Calculations">
+    Lua's `os.date()` and `os.time()` handle date arithmetic. The widget calculates leap years, month lengths, and starting days.
+  </Tab>
+  <Tab title="Conditional Styling">
+    The current day gets the `cal-today` CSS class for highlighting, showing dynamic style application.
+  </Tab>
+</Tabs>
+
+### Auto-Updating Calendar
+
+```lua
+-- calendario.lua:97-134
+function M.updatable_calendar()
+  local calendar_container = Gtk.Box.new(Gtk.Orientation.VERTICAL, 0)
+  local current_calendar = nil
+    
+  local function update_calendar()
+    local f = os.date("*t")
+    local new_calendar = M.crear_calendario(f.month, f.year)
+        
+    -- Replace current calendar
+    if current_calendar then
+      calendar_container:remove(current_calendar)
+      current_calendar = nil
+      collectgarbage("step") 
+    end
+        
+    calendar_container:append(new_calendar)
+    current_calendar = new_calendar
+    return false
+  end
+    
+  -- Schedule midnight updates
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, function()
+    update_calendar()
+    return true
+  end)
+    
+  current_calendar = M.crear_calendario()
+  calendar_container:append(current_calendar)
+    
+  return calendar_container
+end
+```
+
+<Warning>
+  Always remove old widgets from containers before appending new ones, and call `collectgarbage()` to free memory.
+</Warning>
+
+## Widget Styling
+
+### CSS Classes
+
+Widgets are styled using CSS classes:
+
+```lua
+widget:add_css_class("class-name")
+```
+
+Example CSS:
+
+```css
+/* custom.css */
+.sys-status-text {
+  font-family: "Roboto", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: @on_surface;
+}
+
+.sys-status-box {
+  background-color: @surface_container;
+  border-radius: 20px;
+  padding: 15px 10px;
+  border: 1px solid @outline_variant;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+```
+
+### GTK Widget Properties
+
+Common widget properties set in Lua:
+
+```lua
+-- Alignment
+widget.halign = Gtk.Align.CENTER  -- START, END, FILL
+widget.valign = Gtk.Align.CENTER
+
+-- Expansion
+widget.hexpand = true  -- Fill available horizontal space
+widget.vexpand = true
+
+-- Size
+widget:set_size_request(width, height)  -- Minimum size
+
+-- Margins
+widget.margin_start = 10
+widget.margin_end = 10
+widget.margin_top = 5
+widget.margin_bottom = 5
+```
+
+### Inline Styling
+
+For dynamic styles, use CSS providers:
+
+```lua
+local style_provider = Gtk.CssProvider.new()
+local css = string.format(".my-widget { color: %s; }", color)
+style_provider:load_from_data(css, #css)
+Gtk.StyleContext.add_provider_for_display(
+  display, 
+  style_provider, 
+  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+)
+```
+
+## Event Handling
+
+### Button Clicks
+
+```lua
+-- main.lua:144-147
+local button = Gtk.Button.new()
+button.on_clicked = function()
+  app_data.launch()
+end
+```
+
+### Gesture Controllers
+
+```lua
+-- main.lua:214-246
+local click_controller = Gtk.GestureClick.new()
+click_controller:set_button(0)  -- Listen to all buttons
+
+function click_controller:on_pressed(n_press, x, y)
+  local btn = self:get_current_button()
+  
+  if btn == 1 then
+    -- Left click handler
+  elseif btn == 3 then
+    -- Right click handler
+  end
+end
+
+widget:add_controller(click_controller)
+```
+
+### Motion Events
+
+```lua
+-- dashboard.lua:564-578
+local motion_controller = Gtk.EventControllerMotion.new()
+
+function motion_controller:on_enter()
+  revealer.reveal_child = true
+end
+
+function motion_controller:on_leave()
+  revealer.reveal_child = false
+end
+
+widget:add_controller(motion_controller)
+```
+
+## Update Patterns
+
+### Timer-Based Updates
+
+```lua
+-- Update every N seconds
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, interval, function()
+  update_data()
+  return true  -- Keep timer running
+end)
+```
+
+### One-Shot Updates
+
+```lua
+-- Run once after delay
+GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay_ms, function()
+  do_something()
+  return false  -- Stop timer
+end)
+```
+
+### Async Callbacks
+
+```lua
+-- dashboard.lua:70-75
+w.update(10, 10.48, -66.90, function(data)
+  GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+    refresh_ui()
+    return false
+  end)
+end)
+```
+
+<Note>
+  Use `GLib.idle_add` to schedule UI updates from async callbacks. This ensures updates run on the main thread.
+</Note>
+
+## Memory Management
+
+### Widget Cleanup
+
+```lua
+if old_widget then
+  container:remove(old_widget)
+  old_widget = nil
+  collectgarbage("step")
+end
+```
+
+### Resource Disposal
+
+```lua
+-- libs/music.lua:17-21
+player.on_exit = function(self)
+  player = nil
+  collectgarbage("collect")
+end
+```
+
+### Pixbuf Cleanup
+
+```lua
+-- libs/music.lua:167-170
+pixbuf = nil
+one_pixel = nil
+bytes = nil
+-- Explicit nil before GC
+```
+
+## Creating Custom Widgets
+
+Here's a template for creating new widgets:
+
+```lua
+local function create_my_widget()
+  -- 1. State variables
+  local state = {}
+  
+  -- 2. Create GTK widget
+  local widget = Gtk.Box.new(Gtk.Orientation.VERTICAL, 5)
+  widget:add_css_class("my-widget")
+  
+  -- 3. Create children
+  local label = Gtk.Label.new("Initial")
+  widget:append(label)
+  
+  -- 4. Update function
+  local function update()
+    local data = fetch_data()
+    label:set_text(data)
+    return true
+  end
+  
+  -- 5. Set up timers
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, update)
+  update()  -- Initial update
+  
+  -- 6. Event handlers
+  local click = Gtk.GestureClick.new()
+  click.on_pressed = function()
+    handle_click()
+  end
+  widget:add_controller(click)
+  
+  -- 7. Return widget
+  return widget
+end
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Minimize Updates" icon="clock">
+    Use appropriate update intervals. Don't poll faster than necessary.
+  </Card>
+  <Card title="Cache Data" icon="database">
+    Cache expensive operations. See battery caching in `libs/system_i.lua:18-68`.
+  </Card>
+  <Card title="Clean Up Resources" icon="broom">
+    Remove old widgets and nil references before garbage collection.
+  </Card>
+  <Card title="Use CSS Transitions" icon="wand-sparkles">
+    Let CSS handle animations when possible. It's more efficient than Lua timers.
+  </Card>
+</CardGroup>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="GTK4 Documentation" icon="book" href="https://docs.gtk.org/gtk4/">
+    Official GTK4 API documentation
+  </Card>
+  <Card title="LGI Documentation" icon="code" href="https://github.com/pavouk/lgi">
+    Lua GObject Introspection bindings
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Learn about the overall system architecture
+  </Card>
+  <Card title="Theming" icon="palette" href="/theming">
+    Style widgets with the theme system
+  </Card>
+</CardGroup>

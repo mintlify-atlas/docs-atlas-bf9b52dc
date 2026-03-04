@@ -1,0 +1,372 @@
+---
+title: Customizing CandyShell
+description: Learn how to customize the appearance and behavior of your CandyShell desktop
+---
+
+CandyShell is highly customizable, allowing you to personalize colors, wallpapers, pinned applications, and your profile settings. This guide will walk you through all the customization options available.
+
+## Changing Colors with Custom CSS
+
+CandyShell uses a `custom.css` file for styling. The theme system automatically generates Material Design 3 color schemes from your wallpaper using [matugen](https://github.com/InioX/matugen).
+
+### Understanding Color Variables
+
+The CSS uses dynamic color variables that are generated from your wallpaper:
+
+```css
+window {
+  background-color: @background; 
+  color: @on_background; 
+  transition: background-color 800ms ease-in-out, color 800ms ease-in-out;
+}
+```
+
+Available color tokens include:
+- `@primary`, `@on_primary` - Primary brand colors
+- `@secondary`, `@on_secondary` - Secondary accent colors
+- `@tertiary`, `@on_tertiary` - Tertiary accent colors
+- `@surface`, `@on_surface` - Surface and container colors
+- `@surface_container`, `@surface_container_high`, `@surface_container_low`
+- `@outline`, `@outline_variant` - Border colors
+
+### Customizing Widget Styles
+
+You can modify any widget's appearance by editing `custom.css`. Here are some common customizations:
+
+<Tabs>
+  <Tab title="Weather Card">
+    ```css
+    .weather-card {
+      color: @on_surface;
+      border-radius: 20px; 
+      background-color: @surface_container; 
+      min-width: 32px;
+      min-height: 32px;
+      padding: 15px;
+      border: 1px solid @outline_variant;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+    ```
+  </Tab>
+  <Tab title="Bottom Bar">
+    ```css
+    .apps-box {
+      background-color: @surface_container;
+      padding: 5px;
+      border: 1px solid @outline_variant;
+      border-radius: 20px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+    ```
+  </Tab>
+  <Tab title="Calendar">
+    ```css
+    .cal-today {
+      background-color: @primary; 
+      font-weight: 600;
+      border-radius: 50%;
+      min-width: 22px;
+      min-height: 22px;
+      font-family: "Roboto", sans-serif;
+      font-size: 12px;
+      color: @on_primary; 
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Creating Custom Color Schemes
+
+While CandyShell automatically generates colors from your wallpaper, you can override specific colors:
+
+```css
+/* Add at the end of custom.css */
+@define-color primary #FF6B9D;
+@define-color on_primary #FFFFFF;
+@define-color secondary #C77DFF;
+```
+
+<Warning>
+Manually defined colors will be overwritten when you change your wallpaper or theme mode. To make permanent changes, modify the theme generation in `libs/theme.lua`.
+</Warning>
+
+## Modifying Pinned Applications
+
+The bottom bar displays pinned applications for quick access. To customize which apps appear:
+
+<Steps>
+  <Step title="Locate the pinned_apps array">
+    Open `main.lua` and find the `pinned_apps` table (around line 151):
+    
+    ```lua
+    local pinned_apps = { 
+      "org.telegram.desktop._7b8e57b5241cb68ef979736501a5169d.desktop", 
+      "thunar.desktop", 
+      "vlc.desktop", 
+      "firefox.desktop", 
+      "sublime_text.desktop", 
+      "kitty.desktop" 
+    }
+    ```
+  </Step>
+  
+  <Step title="Find your application's desktop file">
+    Desktop files are typically located in:
+    - `/usr/share/applications/` - System-wide applications
+    - `~/.local/share/applications/` - User-specific applications
+    
+    List available applications:
+    ```bash
+    ls /usr/share/applications/*.desktop
+    ls ~/.local/share/applications/*.desktop
+    ```
+  </Step>
+  
+  <Step title="Add or remove applications">
+    Modify the array with your desired desktop file names:
+    
+    ```lua
+    local pinned_apps = { 
+      "firefox.desktop",
+      "code.desktop",  -- VS Code
+      "spotify.desktop",
+      "org.gnome.Nautilus.desktop",
+      "kitty.desktop"
+    }
+    ```
+  </Step>
+  
+  <Step title="Restart CandyShell">
+    Exit and restart CandyShell to see your changes:
+    ```bash
+    swaymsg exit
+    # CandyShell will restart automatically if configured in your Sway config
+    ```
+  </Step>
+</Steps>
+
+### Finding Desktop File Names
+
+If you're unsure of a desktop file's exact name:
+
+```bash
+# Search by application name
+find /usr/share/applications ~/.local/share/applications -name '*spotify*.desktop' 2>/dev/null
+
+# Or use grep to search within desktop files
+grep -r "Name=Firefox" /usr/share/applications/
+```
+
+## Wallpaper Settings
+
+CandyShell provides interactive wallpaper management with automatic theme generation.
+
+### Changing Your Wallpaper
+
+<Steps>
+  <Step title="Left-click the wallpaper">
+    Click anywhere on your wallpaper background with the left mouse button to open the file picker.
+  </Step>
+  
+  <Step title="Select a new image">
+    The file dialog filters for image files (JPEG, PNG, WebP). Choose your desired wallpaper.
+  </Step>
+  
+  <Step title="Automatic theme generation">
+    CandyShell will automatically:
+    - Apply the new wallpaper
+    - Generate a Material Design 3 color scheme from the image
+    - Update all UI elements with the new colors
+    - Save your preferences to `~/.config/candy-shell/config.json`
+  </Step>
+</Steps>
+
+### Switching Between Light and Dark Mode
+
+<Steps>
+  <Step title="Right-click the wallpaper">
+    Click anywhere on your wallpaper with the right mouse button.
+  </Step>
+  
+  <Step title="Theme toggles automatically">
+    The theme will toggle between light and dark mode while keeping the same color palette from your wallpaper.
+  </Step>
+</Steps>
+
+### Setting a Default Wallpaper
+
+To set a default wallpaper that loads on startup, modify `main.lua`:
+
+```lua main.lua
+-- Around line 189
+local last_wallpaper, last_mode = Theme.get_saved_settings()
+
+-- If no saved settings exist, these defaults are used:
+-- Default in libs/theme.lua get_saved_settings():
+return "res/wall.png", "dark"
+```
+
+Replace `"res/wall.png"` with your preferred default wallpaper path.
+
+### Wallpaper Storage Location
+
+Place your wallpapers in the `res/` directory within your CandyShell installation:
+
+```bash
+mkdir -p ~/.config/candy-shell/wallpapers/
+cp ~/Pictures/my-wallpaper.jpg ~/.config/candy-shell/wallpapers/
+```
+
+<Warning>
+The wallpaper file picker requires GTK4's FileDialog API. Ensure you have GTK 4.10+ installed.
+</Warning>
+
+## Profile Customization
+
+Personalize your user profile display in the dashboard.
+
+### Changing Your Profile Picture
+
+<Steps>
+  <Step title="Locate the profile icon">
+    The profile icon is set in `dashboard.lua` around line 23:
+    
+    ```lua
+    local icon_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale('res/icon.jpg', 100, 100)
+    ```
+  </Step>
+  
+  <Step title="Replace the image file">
+    Copy your profile picture to the `res/` directory:
+    ```bash
+    cp ~/Pictures/my-avatar.jpg /path/to/candyshell/res/icon.jpg
+    ```
+    
+    Or change the path in the code:
+    ```lua
+    local icon_buf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+      '/home/user/.config/candy-shell/avatar.png', 100, 100
+    )
+    ```
+  </Step>
+</Steps>
+
+### Changing Your Display Name
+
+The name label appears in the dashboard profile card:
+
+```lua dashboard.lua
+local name_label = Gtk.Label.new('~Jorge Polo ')
+name_label.margin_start = 10
+name_label.margin_top = 10
+name_label:add_css_class('name_label')
+```
+
+Replace `'~Jorge Polo '` with your preferred display name.
+
+### Customizing the Profile Card Background
+
+The profile card background can be customized in `custom.css`:
+
+```css
+.pfp {
+  border-radius: 20px;
+  background-image: url("res/pfp.jpg");
+  background-color: @surface; 
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  border: 1px solid @primary_container; 
+}
+```
+
+Change `url("res/pfp.jpg")` to your preferred background image.
+
+### Adding a Personal Quote
+
+The profile card includes commented-out code for a personal quote. To enable it, edit `dashboard.lua` around line 490:
+
+```lua
+-- Uncomment these lines:
+local frase = Gtk.Label.new('Your custom quote here')
+frase:add_css_class('frase_label')
+
+-- Then add it to the grid (uncomment line 534):
+celdas:attach(frase, 1, 2, 3, 1)
+```
+
+Style it in `custom.css`:
+
+```css
+.frase_label {
+  padding: 8px 16px;
+  color: @on_surface;
+  font-family: 'Dancing Script', cursive;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+```
+
+## Advanced Customization Tips
+
+### Adjusting Dashboard Reveal Behavior
+
+The dashboard reveals when you hover near the top of the screen. Adjust the sensitivity in `dashboard.lua`:
+
+```lua
+function motion_controller:on_enter()
+  revealer.reveal_child = true
+  if conn then
+    sway.run_command(conn, "gaps top all set 310")
+  end
+end
+```
+
+Change `310` to adjust how much space the dashboard takes when revealed.
+
+### Customizing System Icons
+
+CandyShell uses Nerd Font icons. Change any icon by replacing the glyph:
+
+```lua
+-- Battery icons
+local fa_icons = {
+  charging = "󰂄", full = "󰁹", battery_90 = "󰂂",
+  -- ... etc
+}
+
+-- WiFi icons  
+local wifi_icons = {
+  excellent = "󰤨", good = "󰤥", fair = "󰢾", weak = "󰤟", none = "󰤮"
+}
+```
+
+Find more icons at [nerdfonts.com](https://www.nerdfonts.com/cheat-sheet).
+
+### Changing Animations and Transitions
+
+Modify transition durations in `custom.css`:
+
+```css
+window {
+  transition: background-color 800ms ease-in-out, color 800ms ease-in-out;
+}
+```
+
+Or in Lua code for the dashboard revealer:
+
+```lua
+reveler.transition_duration = 500  -- milliseconds
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Adding Widgets" icon="puzzle-piece" href="/development/adding-widgets">
+    Learn how to create custom dashboard widgets
+  </Card>
+  <Card title="Lua API Reference" icon="code" href="/development/lua-api">
+    Explore the complete CandyShell Lua API
+  </Card>
+</CardGroup>

@@ -1,0 +1,210 @@
+---
+title: Dashboard
+description: Top-level dashboard component with revealer behavior and hover-triggered visibility
+---
+
+The Dashboard is the main container for CandyShell's interface widgets. It features a sophisticated revealer system that slides down from the top of the screen when the user hovers over a trigger area.
+
+## Overview
+
+The dashboard is implemented in `dashboard.lua` and provides a comprehensive view of system information, calendar, weather, music playback, and user controls.
+
+## Architecture
+
+The dashboard uses GTK4's `Gtk.Revealer` widget to create smooth slide-down animations. When hidden, only a narrow trigger area remains visible at the top of the screen. On hover, the dashboard reveals itself and adjusts Sway window manager gaps to accommodate its presence.
+
+```lua
+local revealer = Gtk.Revealer.new()
+revealer.child = dashboard
+revealer.reveal_child = false
+revealer.transition_duration = 500
+```
+
+## Hover Trigger System
+
+The dashboard uses `Gtk.EventControllerMotion` to detect mouse enter/leave events:
+
+```lua
+local motion_controller = Gtk.EventControllerMotion.new()
+
+function motion_controller:on_enter()
+  revealer.reveal_child = true
+  if conn then
+    sway.run_command(conn, "gaps top all set 310")
+  end
+end
+
+function motion_controller:on_leave()
+  revealer.reveal_child = false
+  if conn then
+    sway.run_command(conn, "gaps top all set 10")
+  end
+end
+```
+
+<ParamField path="reveal_child" type="boolean" default="false">
+  Controls whether the dashboard is visible
+</ParamField>
+
+<ParamField path="transition_duration" type="number" default="500">
+  Animation duration in milliseconds for the reveal transition
+</ParamField>
+
+## Dashboard Layout
+
+The dashboard uses a `Gtk.CenterBox` with three main sections:
+
+### Start Widget (Left Section)
+
+Contains:
+- **Calendar widget** - Monthly calendar view with current day highlighting
+- **Search bar** - Google search integration placeholder
+
+### Center Widget
+
+Contains:
+- **Profile icon** - User profile picture
+- **Name label** - User's display name
+- **Power tray** - System control buttons (power off, exit, lock)
+
+```lua
+local poweroff_button = Gtk.Button.new()
+function poweroff_button:on_clicked()
+  GLib.spawn_command_line_sync("systemctl poweroff")
+end
+
+local exit_button = Gtk.Button.new()
+function exit_button:on_clicked()
+  GLib.spawn_command_line_sync("swaymsg exit")
+end
+```
+
+### End Widget (Right Section)
+
+Contains:
+- **Music player widget** - MPRIS-based music controls
+- **Weather widget** - Current weather conditions
+- **System monitor widget** - CPU, RAM, and disk usage bars
+
+## Components
+
+### Time Widget
+
+Displays current time with automatic updates:
+
+```lua
+local function create_time_widget()
+  local time_label = Gtk.Label.new(os.date("%H:%M"))
+  time_label:add_css_class("time_label")
+  
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, function()
+    time_label:set_text(os.date("%H:%M"))
+    return true
+  end)
+  
+  return time_label
+end
+```
+
+<ResponseField name="update_interval" type="number">
+  Updates every 60 seconds
+</ResponseField>
+
+### Uptime Widget
+
+Displays system uptime information:
+
+```lua
+local function create_uptime_widget()
+  local uptime_label = Gtk.Label.new()
+  
+  local function update_uptime()
+    local f = io.popen("uptime -p")
+    if f then
+      local uptime_str = f:read("*a")
+      f:close()
+      uptime_label:set_text(uptime_str:gsub("\n", ""))
+    end
+    return true
+  end
+  
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, update_uptime)
+  update_uptime()
+  return uptime_label
+end
+```
+
+<ResponseField name="update_interval" type="number">
+  Updates every 30 seconds
+</ResponseField>
+
+## Profile Section
+
+The dashboard includes a profile section with user information:
+
+```lua
+local user = Gtk.Label.new("@" .. os.getenv("USER"))
+user:add_css_class("user_label")
+```
+
+## CSS Classes
+
+<Expandable title="Dashboard CSS Classes">
+
+| Class | Purpose |
+|-------|--------|
+| `dashboard` | Main dashboard container |
+| `top_panel` | Top panel overlay container |
+| `box_icon` | Profile icon container |
+| `profile_icon` | User profile picture |
+| `name_label` | User name display |
+| `user_label` | Username and uptime display |
+| `time_label` | Time widget styling |
+| `tray_button` | Power control buttons |
+| `icon_font` | Font Awesome icon labels |
+
+</Expandable>
+
+## Integration with Sway
+
+The dashboard communicates with the Sway window manager to adjust top gaps:
+
+```lua
+local conn = sway.connect()
+
+-- On reveal
+sway.run_command(conn, "gaps top all set 310")
+
+-- On hide
+sway.run_command(conn, "gaps top all set 10")
+```
+
+<ParamField path="gaps_revealed" type="number" default="310">
+  Gap size in pixels when dashboard is visible
+</ParamField>
+
+<ParamField path="gaps_hidden" type="number" default="10">
+  Gap size in pixels when dashboard is hidden
+</ParamField>
+
+## Usage
+
+```lua
+local Dashboard = require("dashboard")
+local dashboard_widget = Dashboard.create_dashboard(Gtk, LayerShell, GLib)
+
+-- Add to your top bar
+top_bar:set_child(dashboard_widget)
+```
+
+## File Location
+
+`dashboard.lua:386-588`
+
+## Dependencies
+
+- `calendario` - Calendar widget module
+- `libs.music` - Music player integration
+- `libs.sway` - Sway window manager communication
+- `libs.weather` - Weather data provider
+- `libs.system_i` - System information provider

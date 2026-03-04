@@ -1,97 +1,179 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "CandyShell Documentation"
+description: "A lightweight, modular Wayland desktop shell built with GTK4, Adwaita, and Lua"
+mode: "custom"
 ---
 
-## Setting up
+<div className="relative overflow-hidden bg-gradient-to-br from-[#1a1d27] via-[#0f1117] to-[#1a1d27] dark:bg-gradient-to-br dark:from-[#1a1d27] dark:via-[#0f1117] dark:to-[#1a1d27] py-20">
+  <div className="max-w-6xl mx-auto px-6 lg:px-8">
+    <div className="text-center">
+      <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
+        CandyShell
+      </h1>
+      <p className="text-xl md:text-2xl text-gray-300 dark:text-gray-300 max-w-3xl mx-auto mb-10">
+        A lightweight, modular Wayland desktop shell built with GTK4, Adwaita, and Lua for minimal desktop experiences
+      </p>
+      <div className="flex flex-wrap justify-center gap-4">
+        <a 
+          href="/installation" 
+          className="inline-flex items-center px-6 py-3 rounded-lg bg-[#ff79c6] text-white font-semibold hover:bg-[#ff5ec1] transition-colors no-underline"
+        >
+          Get Started
+        </a>
+        <a 
+          href="/introduction" 
+          className="inline-flex items-center px-6 py-3 rounded-lg border border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors no-underline"
+        >
+          Learn More
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Quick Start
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get CandyShell up and running in minutes
+  </p>
+  
+  <Steps>
+    <Step title="Install dependencies">
+      CandyShell requires LuaJIT, GTK4, Adwaita, and Gtk4-Layer-Shell with lgi bindings.
+      
+      ```bash
+      # On Arch Linux
+      sudo pacman -S luajit gtk4 libadwaita gtk4-layer-shell lua-lgi
+      
+      # On Ubuntu/Debian (may need PPA for latest GTK4)
+      sudo apt install luajit libgtk-4-dev libadwaita-1-dev gtk4-layer-shell
+      ```
+    </Step>
+    
+    <Step title="Clone the repository">
+      Get the CandyShell source code from GitHub.
+      
+      ```bash
+      git clone https://github.com/poloz-z/candy-shell.git
+      cd candy-shell
+      ```
+    </Step>
+    
+    <Step title="Run CandyShell">
+      Launch CandyShell with LuaJIT. Make sure you're running a Wayland compositor like Sway.
+      
+      ```bash
+      luajit main.lua
+      ```
+      
+      <Note>
+        CandyShell is designed to work with the Sway window manager for gap control and workspace management.
+      </Note>
+    </Step>
+  </Steps>
+</div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Key Features
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Everything you need for a beautiful, minimal Wayland desktop
+  </p>
+  
+  <CardGroup cols={2}>
+    <Card title="Dynamic Theming" icon="palette" href="/theming">
+      Wallpaper-based color theming with automatic light/dark mode switching powered by matugen
+    </Card>
+    <Card title="Customizable Dashboard" icon="grid-2" href="/components/dashboard">
+      Pull-down dashboard with calendar, weather, system monitoring, and music player integration
+    </Card>
+    <Card title="Music Player" icon="music" href="/components/music-player">
+      MPRIS integration with album art, playback controls, and dynamic color extraction
+    </Card>
+    <Card title="System Monitoring" icon="chart-line" href="/components/system-monitor">
+      Real-time CPU, RAM, disk, battery, and network status monitoring
+    </Card>
+    <Card title="Sway Integration" icon="window" href="/modules/sway">
+      Native Sway IPC integration for dynamic gap control and workspace management
+    </Card>
+    <Card title="Modular Architecture" icon="puzzle-piece" href="/architecture">
+      Clean Lua module system for easy customization and widget development
+    </Card>
+  </CardGroup>
+</div>
 
-## Make it yours
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Explore the Components
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Learn about each part of CandyShell
+  </p>
+  
+  <CardGroup cols={3}>
+    <Card title="Dashboard" icon="grid" href="/components/dashboard">
+      Top panel with revealer animation
+    </Card>
+    <Card title="Taskbar" icon="window-restore" href="/components/taskbar">
+      Bottom bar with pinned apps
+    </Card>
+    <Card title="Calendar" icon="calendar" href="/components/calendar">
+      Auto-updating date widget
+    </Card>
+    <Card title="Weather" icon="cloud-sun" href="/components/weather">
+      Live weather information
+    </Card>
+    <Card title="System Monitor" icon="gauge" href="/components/system-monitor">
+      CPU, RAM, and disk usage
+    </Card>
+    <Card title="Music Player" icon="compact-disc" href="/components/music-player">
+      Media playback controls
+    </Card>
+  </CardGroup>
+</div>
 
-Design a docs site that looks great and empowers your users.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Development
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Customize and extend CandyShell
+  </p>
+  
+  <CardGroup cols={2}>
+    <Card title="Customization Guide" icon="wrench" href="/development/customization">
+      Learn how to modify colors, layouts, and behavior
+    </Card>
+    <Card title="Adding Widgets" icon="plus-circle" href="/development/adding-widgets">
+      Create your own custom widgets for the dashboard
+    </Card>
+    <Card title="Lua API" icon="code" href="/development/lua-api">
+      Complete reference for CandyShell's Lua modules
+    </Card>
+    <Card title="Architecture" icon="diagram-project" href="/architecture">
+      Understand how CandyShell is structured
+    </Card>
+  </CardGroup>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<div className="mt-20 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27] p-8 md:p-12">
+    <div className="text-center">
+      <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+        Ready to get started?
+      </h2>
+      <p className="text-base text-gray-600 dark:text-gray-400 mb-8 max-w-2xl mx-auto">
+        Install CandyShell and start customizing your Wayland desktop experience today
+      </p>
+      <a 
+        href="/installation" 
+        className="inline-flex items-center px-6 py-3 rounded-lg bg-[#ff79c6] text-white font-semibold hover:bg-[#ff5ec1] transition-colors no-underline"
+      >
+        Install Now
+      </a>
+    </div>
+  </div>
+</div>

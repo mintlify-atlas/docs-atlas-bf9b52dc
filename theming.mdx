@@ -1,0 +1,473 @@
+---
+title: 'Theming System'
+description: 'Dynamic wallpaper-based theming with matugen, light/dark mode switching, and CSS color variables'
+icon: 'palette'
+---
+
+## Overview
+
+CandyShell features a **dynamic theming system** that automatically generates color schemes from wallpaper images using [matugen](https://github.com/InioX/matugen). The theme engine supports light and dark modes, smooth color transitions, and persistent settings.
+
+<Note>
+  The theme system is implemented in `libs/theme.lua` and integrates with GTK4's CSS styling system through dynamically generated color variables.
+</Note>
+
+## Theme Architecture
+
+### Theme Module Structure
+
+```lua
+-- libs/theme.lua:1-7
+local lgi = require("lgi")
+local Gtk = lgi.require("Gtk", "4.0")
+local Gdk = lgi.require("Gdk", "4.0")
+local Json = lgi.require("Json")
+local GLib = lgi.require("GLib")
+
+local M = {}
+```
+
+The theme module exports three main functions:
+
+<CardGroup cols={3}>
+  <Card title="apply()" icon="wand-magic-sparkles">
+    Extract colors from image and apply theme
+  </Card>
+  <Card title="save_settings()" icon="floppy-disk">
+    Persist wallpaper and mode to config
+  </Card>
+  <Card title="get_saved_settings()" icon="folder-open">
+    Load previous theme configuration
+  </Card>
+</CardGroup>
+
+## CSS Provider System
+
+### Global CSS Provider
+
+The theme module maintains a global CSS provider that's registered at module load time:
+
+```lua
+-- libs/theme.lua:13-17
+local css_provider = Gtk.CssProvider.new()
+local display = Gdk.Display.get_default()
+if display then
+  Gtk.StyleContext.add_provider_for_display(display, css_provider, 800)
+end
+```
+
+<Accordion title="Provider Priority">
+  The CSS provider is registered with priority `800`, which is higher than:
+  - `GTK_STYLE_PROVIDER_PRIORITY_FALLBACK` (1)
+  - `GTK_STYLE_PROVIDER_PRIORITY_THEME` (200)
+  - `GTK_STYLE_PROVIDER_PRIORITY_SETTINGS` (400)
+  - `GTK_STYLE_PROVIDER_PRIORITY_APPLICATION` (600)
+  
+  This ensures theme colors override application defaults but can still be overridden by user CSS (priority 800+).
+</Accordion>
+
+## Matugen Integration
+
+### Color Extraction Process
+
+The `Theme.apply()` function uses matugen to extract colors from images:
+
+```lua
+-- libs/theme.lua:45-59
+function M.apply(image_path, selected_mode)
+  -- Run matugen to extract colors
+  local cmd = string.format("matugen image '%s' -j hex", image_path)
+  local handle = io.popen(cmd)
+  local result = handle:read("*a")
+  handle:close()
+
+  if not result or result == "" then return end
+
+  -- Parse JSON output
+  local parser = Json.Parser.new()
+  local success, err = parser:load_from_data(result, -1)
+
+  if not success then
+    print("--error--:", err)
+    return
+  end
+  -- ...
+end
+```
+
+<Tabs>
+  <Tab title="Matugen Output">
+    Matugen generates a Material Design 3 color palette from the image:
+    
+    ```json
+    {
+      "colors": {
+        "dark": {
+          "primary": "#a0c9ff",
+          "on_primary": "#003258",
+          "primary_container": "#00497d",
+          "surface": "#1a1c1e",
+          "background": "#1a1c1e",
+          // ... more colors
+        },
+        "light": {
+          "primary": "#00639b",
+          "on_primary": "#ffffff",
+          "primary_container": "#cfe4ff",
+          // ... more colors
+        }
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Color Roles">
+    Material Design 3 defines semantic color roles:
+    
+    - **Primary** - Main brand/accent color
+    - **Secondary** - Supporting accent color
+    - **Tertiary** - Additional accent color
+    - **Surface** - Background for components
+    - **Background** - Main screen background
+    - **Error** - Error states
+    - **Outline** - Borders and dividers
+    
+    Each role has an "on-" variant for text/icons on that surface.
+  </Tab>
+</Tabs>
+
+### CSS Variable Generation
+
+Colors are converted to GTK CSS variables:
+
+```lua
+-- libs/theme.lua:64-77
+local mode = selected_mode
+if mode ~= "dark" and mode ~= "light" then
+  mode = "dark"
+end
+
+local palette = colors_obj:get_object_member(mode)
+if not palette then return end
+
+local css_lines = {}
+local members = palette:get_members()
+for _, name in ipairs(members) do
+  local value = palette:get_string_member(name)
+  table.insert(css_lines, string.format("@define-color %s %s;", name, value))
+end
+
+local final_css = table.concat(css_lines, "\n")
+css_provider:load_from_data(final_css, #final_css)
+```
+
+<Note>
+  The generated CSS defines color variables like `@define-color primary #a0c9ff;` that can be referenced in stylesheets using `@primary`.
+</Note>
+
+## Theme Application
+
+### Main CSS Loading
+
+The main application loads a static CSS file alongside the dynamic theme:
+
+```lua
+-- main.lua:166-169
+local provider = Gtk.CssProvider()
+provider:load_from_path("custom.css")
+local display = bg_win:get_display()
+Gtk.StyleContext.add_provider_for_display(display, provider, 600)
+```
+
+### Using Theme Colors in CSS
+
+The `custom.css` file references theme variables:
+
+```css
+/* custom.css:1-5 */
+window {
+  background-color: @background; 
+  color: @on_background; 
+  transition: background-color 800ms ease-in-out, color 800ms ease-in-out;
+}
+
+/* custom.css:38-43 */
+.box_dashboard {
+  border-radius: 20px; 
+  background-color: @surface_container; 
+  border: 1px solid @outline_variant;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: background-color 800ms ease-in-out, border-color 800ms ease-in-out;
+}
+```
+
+<Accordion title="Color Variables in CandyShell CSS">
+  Common theme variables used throughout CandyShell:
+  
+  - `@primary` - Primary accent color (buttons, highlights)
+  - `@on_primary` - Text on primary color
+  - `@surface` - Card/widget backgrounds
+  - `@surface_container` - Container backgrounds
+  - `@on_surface` - Text on surface colors
+  - `@background` - Main background
+  - `@on_background` - Text on background
+  - `@outline` - Border colors
+  - `@outline_variant` - Subtle borders
+</Accordion>
+
+## Wallpaper and Mode Switching
+
+### Interactive Wallpaper Widget
+
+The wallpaper acts as an interactive element for theme control:
+
+```lua
+-- main.lua:193-246
+local wallpaper = Gtk.Picture.new_for_filename(current_wp_path)
+wallpaper.content_fit = Gtk.ContentFit.COVER
+
+local click_controller = Gtk.GestureClick.new()
+click_controller:set_button(0) -- Listen to all buttons
+
+function click_controller:on_pressed(n_press, x, y)
+  local btn = self:get_current_button()
+
+  if btn == 1 then  -- Left click: Change wallpaper
+    wp_file_dialog:open(nil, nil, function(dialog, result)
+      local file, err = dialog:open_finish(result)
+      if file then
+        current_wp_path = file:get_path()
+        wallpaper:set_file(file)
+        Theme.apply(current_wp_path, current_mode)
+        Theme.save_settings(current_wp_path, current_mode)
+      end
+    end)
+
+  elseif btn == 3 then  -- Right click: Toggle theme mode
+    if current_mode == "light" then
+      current_mode = "dark"
+    else
+      current_mode = "light"
+    end
+    Theme.apply(current_wp_path, current_mode)
+    Theme.save_settings(current_wp_path, current_mode)
+  end
+end
+```
+
+<Steps>
+  <Step title="Left Click">
+    Opens a file dialog to select a new wallpaper image. Supported formats: JPEG, PNG, WebP
+  </Step>
+  <Step title="Right Click">
+    Toggles between light and dark theme modes without changing the wallpaper
+  </Step>
+  <Step title="Auto Apply">
+    Theme is applied immediately and settings are persisted to disk
+  </Step>
+</Steps>
+
+## Settings Persistence
+
+### Configuration Storage
+
+Theme settings are stored in `~/.config/candy-shell/config.json`:
+
+```lua
+-- libs/theme.lua:10-11
+local config_dir = GLib.get_user_config_dir() .. "/candy-shell"
+local config_path = config_dir .. "/config.json"
+```
+
+### Save Implementation
+
+```lua
+-- libs/theme.lua:19-28
+function M.save_settings(image_path, mode)
+  GLib.mkdir_with_parents(config_dir, 511)  -- 0777 permissions
+
+  local f = io.open(config_path, "w")
+  if f then
+    local content = string.format(
+      '{\n  "wallpaper": "%s",\n  "theme_mode": "%s"\n}',
+      image_path, mode
+    )
+    f:write(content)
+    f:close()
+  end
+end
+```
+
+### Load Implementation
+
+```lua
+-- libs/theme.lua:30-43
+function M.get_saved_settings()
+  local f = io.open(config_path, "r")
+  if f then
+    local content = f:read("*a")
+    f:close()
+    local parser = Json.Parser.new()
+    local ok, _ = parser:load_from_data(content, -1)
+    if ok then
+      local obj = parser:get_root():get_object()
+      return obj:get_string_member("wallpaper"), 
+             obj:get_string_member("theme_mode")
+    end
+  end
+  return "res/wall.png", "dark"  -- Defaults
+end
+```
+
+<Warning>
+  The JSON parsing uses GLib's JSON parser, which requires properly formatted JSON. Invalid JSON will cause the parser to fail silently and return default values.
+</Warning>
+
+## Smooth Transitions
+
+### CSS Transitions
+
+All color-based properties include smooth transitions:
+
+```css
+/* custom.css - Transition examples */
+window {
+  transition: background-color 800ms ease-in-out, color 800ms ease-in-out;
+}
+
+label {
+  transition: color 800ms ease-in-out;
+}
+
+.box_dashboard {
+  transition: background-color 800ms ease-in-out, border-color 800ms ease-in-out;
+}
+```
+
+This creates smooth color transitions when switching between light and dark modes.
+
+## Widget-Specific Theming
+
+### Music Player Dynamic Colors
+
+The music player widget extracts colors from album art for adaptive theming:
+
+```lua
+-- libs/music.lua:144-172
+function M.get_album_colors()
+  local pixbuf = M.get_album_art()
+
+  if not pixbuf then 
+    return "#353535", "#ffffff"  -- Default gray/white
+  end
+
+  -- Scale to 3x3 to get average color
+  local one_pixel = pixbuf:scale_simple(3, 3, 'BILINEAR')
+  local bytes = one_pixel:read_pixel_bytes()
+  local data = bytes:get_data() 
+
+  -- Extract RGB values
+  local r = string.byte(data, 1)
+  local g = string.byte(data, 2)
+  local b = string.byte(data, 3)
+
+  local bg_hex = string.format("#%02x%02x%02x", r, g, b)
+  local fg_hex = get_contrasting_text_color(r, g, b)
+
+  return bg_hex, fg_hex
+end
+```
+
+This color is applied via dynamic CSS:
+
+```lua
+-- dashboard.lua:359-369
+local dynamic_css = base_css .. string.format([[
+  #simple_music_box { 
+    background-color: %s; 
+    background-image: radial-gradient(circle at center, %s 0%%, shade(%s, 0.6) 100%%); 
+  }
+  #music_artist, #music_title, .music-control-btn { 
+    color: %s; 
+  }
+]], bg_color, bg_color, bg_color, text_color)
+
+music_style_provider:load_from_data(dynamic_css, #dynamic_css)
+```
+
+## Theme Initialization
+
+### Startup Sequence
+
+```lua
+-- main.lua:184-189
+local last_wallpaper, last_mode = Theme.get_saved_settings()
+
+local current_mode = last_mode
+local current_wp_path = last_wallpaper
+
+Theme.apply(current_wp_path, current_mode)
+```
+
+<Steps>
+  <Step title="Load Saved Settings">
+    Read wallpaper path and theme mode from `~/.config/candy-shell/config.json`
+  </Step>
+  <Step title="Apply Theme">
+    Run matugen on the wallpaper and generate CSS variables
+  </Step>
+  <Step title="Load Static CSS">
+    Load `custom.css` which references the generated variables
+  </Step>
+  <Step title="Display Wallpaper">
+    Set the wallpaper image in the background window
+  </Step>
+</Steps>
+
+## Advanced: Custom Color Schemes
+
+You can manually define color schemes by creating CSS files with color variables:
+
+```css
+/* custom-theme.css */
+@define-color primary #ff6b6b;
+@define-color on_primary #ffffff;
+@define-color surface #2d3748;
+@define-color on_surface #f7fafc;
+/* ... more colors */
+```
+
+Then load it with a higher priority:
+
+```lua
+local custom_provider = Gtk.CssProvider()
+custom_provider:load_from_path("custom-theme.css")
+Gtk.StyleContext.add_provider_for_display(display, custom_provider, 900)
+```
+
+## Debugging Tips
+
+<Accordion title="Theme Not Applying">
+  1. Verify matugen is installed: `which matugen`
+  2. Check matugen output manually: `matugen image /path/to/image.jpg -j hex`
+  3. Enable GTK debug: `GTK_DEBUG=interactive lua main.lua`
+  4. Check CSS provider priority conflicts
+</Accordion>
+
+<Accordion title="Colors Look Wrong">
+  1. Verify image has sufficient color variety
+  2. Try different matugen algorithms (see matugen docs)
+  3. Check if custom CSS is overriding theme colors
+  4. Inspect generated CSS: Add `print(final_css)` in `theme.lua:80`
+</Accordion>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how theming integrates with the overall system
+  </Card>
+  <Card title="Matugen Documentation" icon="book" href="https://github.com/InioX/matugen">
+    Learn more about matugen color extraction
+  </Card>
+</CardGroup>

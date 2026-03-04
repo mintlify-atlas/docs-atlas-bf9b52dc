@@ -1,0 +1,298 @@
+---
+title: Calendar
+description: Auto-updating calendar widget with current day highlighting and date display
+---
+
+The Calendar widget displays a monthly calendar view with automatic date updates and current day highlighting.
+
+## Overview
+
+Implemented in `calendario.lua`, the calendar widget provides a traditional month-view calendar that automatically updates at midnight and highlights the current day.
+
+## Features
+
+- Monthly calendar grid with day numbers
+- Current day highlighting
+- Automatic midnight updates
+- Leap year calculation
+- Spanish month and day names
+- Responsive grid layout
+
+## Core Functions
+
+### Days in Month Calculation
+
+Calculates the number of days in a given month, including leap year handling:
+
+```lua
+function M.dias_en_mes(mes, anio)
+  local dias_por_mes = {
+    [1] = 31, [3] = 31, [5] = 31, [7] = 31, [8] = 31, [10] = 31, [12] = 31,
+    [4] = 30, [6] = 30, [9] = 30, [11] = 30
+  }
+  
+  if mes == 2 then
+    if (anio % 4 == 0 and anio % 100 ~= 0) or (anio % 400 == 0) then
+      return 29
+    else
+      return 28
+    end
+  else
+    return dias_por_mes[mes] or 31
+  end
+end
+```
+
+<ParamField path="mes" type="number" required>
+  Month number (1-12)
+</ParamField>
+
+<ParamField path="anio" type="number" required>
+  Year (e.g., 2026)
+</ParamField>
+
+<ResponseField name="return" type="number">
+  Number of days in the specified month
+</ResponseField>
+
+### Starting Day Calculation
+
+Determines which day of the week the month starts on:
+
+```lua
+function M.obtener_dia_inicio(mes, anio)
+  local primer_dia = os.time({year = anio, month = mes, day = 1})
+  local fecha_info = os.date("*t", primer_dia)
+  return fecha_info.wday
+end
+```
+
+<ResponseField name="return" type="number">
+  Day of week (1=Sunday, 2=Monday, ..., 7=Saturday)
+</ResponseField>
+
+## Calendar Creation
+
+The main calendar creation function:
+
+```lua
+function M.crear_calendario(mes, anio)
+  local f = os.date("*t")
+  mes = mes or f.month
+  anio = anio or f.year
+
+  local calendario_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+  calendario_box:add_css_class("box_dashboard")
+
+  -- Header with month and year
+  local cal_mes = Gtk.Label.new(M.wmonths[mes] .. ", " .. anio)
+  cal_mes.margin_start = 20
+  cal_mes.margin_top = 20
+  cal_mes.halign = Gtk.Align.START
+  cal_mes:add_css_class("cal-header")
+
+  -- Grid for days
+  local cal_dias = Gtk.Grid.new()
+  cal_dias.margin_start = 20
+  cal_dias.margin_end = 20
+  cal_dias.margin_bottom = 20
+
+  local total_dias = M.dias_en_mes(mes, anio)
+  local dia_inicio = M.obtener_dia_inicio(mes, anio)
+  local dia_actual = (mes == f.month and anio == f.year) and f.day or nil
+
+  -- Fill calendar grid
+  local fila = 2
+  local dia_numero = 1
+
+  while dia_numero <= total_dias do
+    for c = 1, 7 do
+      if (fila == 2 and c < dia_inicio) or dia_numero > total_dias then
+        -- Empty cell
+        local vacio = Gtk.Label.new("")
+        vacio:add_css_class("cal-empty")
+        cal_dias:attach(vacio, c, fila, 1, 1)
+      else
+        -- Day cell
+        local cal_dia = Gtk.Label.new(tostring(dia_numero))
+        cal_dia:add_css_class("cal-day")
+
+        if dia_numero == dia_actual then
+          cal_dia:add_css_class("cal-today")
+        end
+
+        cal_dias:attach(cal_dia, c, fila, 1, 1)
+        dia_numero = dia_numero + 1
+      end
+    end
+    fila = fila + 1
+  end
+
+  calendario_box:append(cal_mes)
+  calendario_box:append(cal_dias)
+
+  return calendario_box
+end
+```
+
+<ParamField path="mes" type="number" default="current month">
+  Month to display (1-12)
+</ParamField>
+
+<ParamField path="anio" type="number" default="current year">
+  Year to display
+</ParamField>
+
+<ResponseField name="return" type="Gtk.Box">
+  Calendar widget container
+</ResponseField>
+
+## Auto-Updating Calendar
+
+The `updatable_calendar` function creates a self-updating calendar widget:
+
+```lua
+function M.updatable_calendar()
+  local calendar_container = Gtk.Box.new(Gtk.Orientation.VERTICAL, 0)
+  local current_calendar = nil
+    
+  local function update_calendar()
+    local f = os.date("*t")
+    local new_calendar = M.crear_calendario(f.month, f.year)
+        
+    -- Replace current calendar
+    if current_calendar then
+      calendar_container:remove(current_calendar)
+      current_calendar = nil
+      collectgarbage("step")
+    end
+        
+    calendar_container:append(new_calendar)
+    current_calendar = new_calendar
+        
+    return false
+  end
+    
+  -- Schedule updates every 60 seconds
+  local function schedule_midnight_update()
+    GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, function()
+      update_calendar()
+      schedule_midnight_update()
+      return false
+    end)
+  end
+    
+  current_calendar = M.crear_calendario()
+  calendar_container:append(current_calendar)
+  schedule_midnight_update()
+    
+  return calendar_container
+end
+```
+
+<ResponseField name="update_interval" type="number">
+  Calendar updates every 60 seconds to detect date changes
+</ResponseField>
+
+## Localization
+
+The calendar includes Spanish month and day names:
+
+```lua
+M.wdays = {
+  "Domingo", "Lunes", "Martes", "Miércoles", 
+  "Jueves", "Viernes", "Sábado"
+}
+
+M.wmonths = {
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+}
+```
+
+<Expandable title="Month Names">
+
+| Index | Spanish | English |
+|-------|---------|--------|
+| 1 | Enero | January |
+| 2 | Febrero | February |
+| 3 | Marzo | March |
+| 4 | Abril | April |
+| 5 | Mayo | May |
+| 6 | Junio | June |
+| 7 | Julio | July |
+| 8 | Agosto | August |
+| 9 | Septiembre | September |
+| 10 | Octubre | October |
+| 11 | Noviembre | November |
+| 12 | Diciembre | December |
+
+</Expandable>
+
+## CSS Classes
+
+<Expandable title="Calendar CSS Classes">
+
+| Class | Purpose |
+|-------|--------|
+| `box_dashboard` | Main calendar container |
+| `cal-header` | Month and year header |
+| `cal-day` | Individual day cell |
+| `cal-today` | Current day highlighting |
+| `cal-empty` | Empty cells before month starts |
+
+</Expandable>
+
+## Grid Layout
+
+The calendar uses `Gtk.Grid` for precise positioning:
+
+- **Row 1**: Day names header (not implemented in current version)
+- **Row 2+**: Day numbers arranged in 7-column grid (Sunday-Saturday)
+- Empty cells fill spaces before the first day of the month
+
+## Memory Management
+
+The updatable calendar includes garbage collection to prevent memory leaks:
+
+```lua
+if current_calendar then
+  calendar_container:remove(current_calendar)
+  current_calendar = nil
+  collectgarbage("step")
+end
+```
+
+## Usage
+
+### Static Calendar
+
+```lua
+local calendario = require("calendario")
+
+-- Create calendar for current month
+local cal = calendario.crear_calendario()
+
+-- Create calendar for specific date
+local cal = calendario.crear_calendario(12, 2026) -- December 2026
+```
+
+### Auto-Updating Calendar
+
+```lua
+local calendario = require("calendario")
+local cal_widget = calendario.updatable_calendar()
+
+-- Add to your layout
+container:append(cal_widget)
+```
+
+## File Location
+
+`calendario.lua:1-136`
+
+## Dependencies
+
+- `lgi.Gtk` - GTK4 bindings
+- `lgi.GLib` - GLib utilities for timers
+- `lgi.GObject` - GObject type system

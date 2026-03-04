@@ -1,0 +1,348 @@
+---
+title: Taskbar
+description: Bottom taskbar with pinned applications, launcher, and system status indicators
+---
+
+The taskbar is CandyShell's bottom panel that provides quick access to pinned applications and displays system status information.
+
+## Overview
+
+Implemented in `main.lua`, the taskbar uses GTK4 Layer Shell to anchor itself at the bottom of the screen. It features a center-aligned layout with three sections: launcher, pinned apps, and system status.
+
+## Architecture
+
+The taskbar is a separate `Gtk.ApplicationWindow` using Layer Shell:
+
+```lua
+local bar_win = Gtk.ApplicationWindow.new(self)
+bar_win:set_default_size(1, 50)
+bar_win:add_css_class("barra-shell")
+
+LayerShell.init_for_window(bar_win)
+LayerShell.set_layer(bar_win, LayerShell.Layer.TOP)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.LEFT, true)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.RIGHT, true)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.BOTTOM, true)
+LayerShell.auto_exclusive_zone_enable(bar_win)
+```
+
+## Layer Shell Configuration
+
+<ParamField path="layer" type="LayerShell.Layer" default="TOP">
+  Z-order layer for the taskbar window
+</ParamField>
+
+<ParamField path="anchors" type="object">
+  Edges to anchor the taskbar to:
+  - `LEFT`: true
+  - `RIGHT`: true
+  - `BOTTOM`: true
+  - `TOP`: false
+</ParamField>
+
+<ParamField path="margins" type="object">
+  Edge margins in pixels:
+  - `LEFT`: 15
+  - `RIGHT`: 15
+  - `BOTTOM`: 3
+  - `TOP`: 0
+</ParamField>
+
+## Layout Structure
+
+The taskbar uses a `Gtk.CenterBox` with three sections:
+
+```lua
+local main_bar = Gtk.CenterBox.new()
+main_bar.orientation = Gtk.Orientation.HORIZONTAL
+main_bar.margin_start = 10
+main_bar.margin_end = 10
+main_bar:add_css_class('bottom-bar')
+```
+
+### Start Widget (Left)
+
+Contains the application launcher:
+
+```lua
+local launcher_circular = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 0)
+launcher_circular:add_css_class("launcher-circular")
+launcher_circular.valign = Gtk.Align.CENTER
+launcher_circular.halign = Gtk.Align.CENTER
+```
+
+### Center Widget
+
+Contains pinned application buttons:
+
+```lua
+local center_apps_box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 8)
+center_apps_box:add_css_class("center-pinned-apps")
+center_apps_box.valign = Gtk.Align.CENTER
+center_apps_box.halign = Gtk.Align.CENTER
+```
+
+### End Widget (Right)
+
+Contains system status indicators (WiFi, battery, time).
+
+## Pinned Apps System
+
+The taskbar displays a configurable list of pinned applications:
+
+```lua
+local pinned_apps = { 
+  "org.telegram.desktop._7b8e57b5241cb68ef979736501a5169d.desktop",
+  "thunar.desktop",
+  "vlc.desktop",
+  "firefox.desktop",
+  "sublime_text.desktop",
+  "kitty.desktop"
+}
+```
+
+### Creating App Buttons
+
+App buttons are created dynamically from desktop entry IDs:
+
+```lua
+local function create_app_button(app_id)
+  local all_apps = GApps.get_all_apps()
+  local app_data = all_apps[app_id]
+
+  if not app_data then return nil end
+
+  local button = Gtk.Button.new()
+  button:add_css_class("apps-box")
+
+  local image = Gtk.Image.new_from_gicon(app_data.icon)
+  image:set_pixel_size(32)
+  
+  button:set_child(image)
+  button:set_tooltip_text(app_data.name)
+
+  button.on_clicked = function()
+    app_data.launch()
+  end
+
+  return button
+end
+```
+
+<ParamField path="app_id" type="string" required>
+  Desktop entry ID (e.g., "firefox.desktop")
+</ParamField>
+
+<ResponseField name="icon" type="GIcon">
+  Application icon extracted from desktop entry
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Application display name for tooltip
+</ResponseField>
+
+<ResponseField name="launch" type="function">
+  Function to launch the application
+</ResponseField>
+
+### Adding Apps to Taskbar
+
+```lua
+for _, id in ipairs(pinned_apps) do
+  local btn = create_app_button(id)
+  if btn then
+    center_apps_box:append(btn)
+  end
+end
+```
+
+## System Status Indicators
+
+The taskbar displays real-time system information on the right side:
+
+```lua
+local function create_system_status_box()
+  local box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 20)
+  box:add_css_class("sys-status-box")
+  box.valign = Gtk.Align.CENTER
+
+  box:append(create_wifi_label())
+  box:append(create_battery_label())
+  box:append(create_time_label())
+
+  return box
+end
+```
+
+### WiFi Indicator
+
+Displays WiFi connection status and signal strength:
+
+```lua
+local function create_wifi_label()
+  local wifi_label = Gtk.Label.new("")
+  wifi_label:set_use_markup(true)
+  wifi_label:add_css_class("sys-status-text")
+
+  local wifi_icons = {
+    excellent = "󰤨", good = "󰤥", fair = "󰢾", 
+    weak = "󰤟", none = "󰤮"
+  }
+
+  local function update_wifi()
+    local strength = NetworkManager.get_wifi_strength() or 0
+    local connected = NetworkManager.is_wifi_connected()
+    local icon = wifi_icons.none
+
+    if connected then
+      if strength >= 75 then icon = wifi_icons.excellent
+      elseif strength >= 50 then icon = wifi_icons.good
+      elseif strength >= 25 then icon = wifi_icons.fair
+      else icon = wifi_icons.weak end
+    end
+
+    wifi_label:set_markup(string.format('<span>%s</span>', icon))
+    return true
+  end
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 15, update_wifi)
+  update_wifi()
+  return wifi_label
+end
+```
+
+<Expandable title="WiFi Signal Thresholds">
+
+| Strength | Icon | Range |
+|----------|------|-------|
+| Excellent | 󰤨 | 75-100% |
+| Good | 󰤥 | 50-74% |
+| Fair | 󰢾 | 25-49% |
+| Weak | 󰤟 | 1-24% |
+| None | 󰤮 | Disconnected |
+
+</Expandable>
+
+<ResponseField name="update_interval" type="number">
+  Updates every 15 seconds
+</ResponseField>
+
+### Battery Indicator
+
+Displays battery percentage and charging status:
+
+```lua
+local function create_battery_label()
+  local battery_label = Gtk.Label.new("")
+  battery_label:set_use_markup(true)
+  battery_label:add_css_class("sys-status-text")
+
+  local fa_icons = {
+    charging = "󰂄", full = "󰁹", battery_90 = "󰂂",
+    battery_80 = "󰂁", battery_70 = "󰂀", battery_60 = "󰁿",
+    battery_50 = "󰁾", battery_40 = "󰁽", battery_30 = "󰁼",
+    battery_20 = "󰁻", battery_10 = "󰁺", battery_0 = "󰂎"
+  }
+
+  local function update_battery()
+    local percentage = SystemInfo.get_battery_percentage() or 0
+    local state = SystemInfo.get_battery_state() or 0
+    local is_charging = (state == 1)
+    local icon = ""
+
+    if is_charging then
+      icon = fa_icons.charging
+    elseif percentage >= 95 then icon = fa_icons.full
+    elseif percentage >= 85 then icon = fa_icons.battery_90
+    -- ... (other thresholds)
+    end
+
+    battery_label:set_markup(string.format(
+      '<span>%s %d%%</span>',
+      icon, math.floor(percentage)
+    ))
+    return true
+  end
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, update_battery)
+  update_battery()
+  return battery_label
+end
+```
+
+<ResponseField name="update_interval" type="number">
+  Updates every 30 seconds
+</ResponseField>
+
+### Time Indicator
+
+Displays current time in 24-hour format:
+
+```lua
+local function create_time_label()
+  local time_label = Gtk.Label.new(os.date("%H:%M"))
+  time_label:add_css_class("sys-status-text")
+
+  local function update_time()
+    time_label:set_text(os.date("%H:%M"))
+    return true
+  end
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, update_time)
+  return time_label
+end
+```
+
+<ResponseField name="update_interval" type="number">
+  Updates every second
+</ResponseField>
+
+## CSS Classes
+
+<Expandable title="Taskbar CSS Classes">
+
+| Class | Purpose |
+|-------|--------|
+| `barra-shell` | Main taskbar window |
+| `bottom-bar` | Main bar container |
+| `launcher-circular` | Launcher button |
+| `center-pinned-apps` | Pinned apps container |
+| `apps-box` | Individual app button |
+| `sys-status-box` | Status indicators container |
+| `sys-status-text` | Status text labels |
+
+</Expandable>
+
+## Configuration
+
+### Customizing Pinned Apps
+
+Edit the `pinned_apps` table in `main.lua`:
+
+```lua
+local pinned_apps = {
+  "your-app-id.desktop",
+  "another-app.desktop"
+}
+```
+
+### Finding Desktop Entry IDs
+
+Desktop entries are typically located in:
+- `/usr/share/applications/`
+- `~/.local/share/applications/`
+
+List available apps:
+```bash
+ls /usr/share/applications/*.desktop
+```
+
+## File Location
+
+`main.lua:269-319`
+
+## Dependencies
+
+- `libs.gapps` - Desktop application information provider
+- `libs.system_i` - System information (battery, CPU, RAM)
+- `libs.nm` - NetworkManager integration for WiFi status

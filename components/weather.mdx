@@ -1,0 +1,380 @@
+---
+title: Weather
+description: Weather widget with GWeather API integration, icon mapping, and automatic updates
+---
+
+The Weather widget provides current weather conditions including temperature, description, wind speed, and humidity.
+
+## Overview
+
+Implemented in `libs/weather.lua`, the weather widget uses GWeather (GNOME Weather library) to fetch weather data from the MET Norway weather service.
+
+## Data Structure
+
+Weather data is stored in a module-level table:
+
+```lua
+M.datos = {
+  load = false,
+  state = "state",
+  country = "country",
+  temp = 0,
+  descrip = 0,
+  icon = nil,
+  emoji = nil,
+  wind = nil,
+  humi = nil
+}
+```
+
+<ResponseField name="load" type="boolean">
+  Whether weather data has been successfully loaded
+</ResponseField>
+
+<ResponseField name="state" type="string">
+  City or state name
+</ResponseField>
+
+<ResponseField name="country" type="string">
+  Country name
+</ResponseField>
+
+<ResponseField name="temp" type="string">
+  Temperature (formatted by GWeather)
+</ResponseField>
+
+<ResponseField name="descrip" type="string">
+  Weather condition description (e.g., "Partly cloudy")
+</ResponseField>
+
+<ResponseField name="icon" type="string">
+  Icon name from GWeather
+</ResponseField>
+
+<ResponseField name="emoji" type="string">
+  Nerd Font icon corresponding to weather condition
+</ResponseField>
+
+<ResponseField name="wind" type="string">
+  Wind speed (formatted by GWeather)
+</ResponseField>
+
+<ResponseField name="humi" type="string">
+  Humidity percentage (formatted by GWeather)
+</ResponseField>
+
+## Icon Mapping
+
+The weather module maps GWeather icon names to Nerd Font glyphs:
+
+```lua
+local icons_emoji = {
+  ["weather-clear"]             = "󰖙",
+  ["weather-few-clouds"]        = "󰖕",
+  ["weather-clouds"]            = "󰖐",
+  ["weather-overcast"]          = "󰖐",
+  ["weather-showers"]           = "󰖗",
+  ["weather-showers-scattered"] = "󰖗",
+  ["weather-rain"]              = "󰖖",
+  ["weather-storm"]             = "󰖓",
+  ["weather-snow"]              = "󰼶",
+  ["weather-fog"]               = "󰖑",
+}
+```
+
+<Expandable title="Weather Icon Mappings">
+
+| Condition | Icon Name | Nerd Font Glyph |
+|-----------|-----------|----------------|
+| Clear | weather-clear | 󰖙 |
+| Few Clouds | weather-few-clouds | 󰖕 |
+| Cloudy | weather-clouds | 󰖐 |
+| Overcast | weather-overcast | 󰖐 |
+| Showers | weather-showers | 󰖗 |
+| Scattered Showers | weather-showers-scattered | 󰖗 |
+| Rain | weather-rain | 󰖖 |
+| Storm | weather-storm | 󰖓 |
+| Snow | weather-snow | 󰼶 |
+| Fog | weather-fog | 󰖑 |
+
+</Expandable>
+
+## Update Function
+
+The main function to fetch weather data:
+
+```lua
+function M.update(seconds, lat, lon, callback)
+  local mundo = GWeather.Location.get_world()
+  local city = mundo:find_nearest_city(lat, lon)
+
+  if not city then return false, "not found" end
+
+  local info = GWeather.Info.new()
+  current_info = info
+
+  info:set_location(city)
+  info:set_application_id("io.github.poloz_z.CandyShell.Lua.Gtk4.Shell")
+  info:set_contact_info("jpolo5678@gmail.com")
+  info:set_enabled_providers("MET_NO")
+
+  local loop = GLib.MainLoop()
+  local success = false
+
+  info.on_updated = function(self)
+    M.datos.state = city:get_city_name()
+    M.datos.country = city:get_country_name()
+    
+    M.datos.temp = self:get_temp()
+    M.datos.descrip = self:get_conditions()
+    M.datos.wind = self:get_wind()
+    M.datos.humi = self:get_humidity()
+    
+    local icon_name = self:get_icon_name()
+    M.datos.icon = icon_name
+    M.datos.emoji = icons_emoji[icon_name] or ""
+    
+    M.datos.load = true
+    success = true
+    loop:quit()
+  end
+
+  info:update()
+
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, seconds or 10, function()
+    if not success then
+      loop:quit()
+    end
+    return false
+  end)
+
+  loop:run()
+
+  if callback and success then
+    callback(M.datos)
+  end
+
+  return success
+end
+```
+
+<ParamField path="seconds" type="number" default="10">
+  Timeout in seconds for the weather fetch operation
+</ParamField>
+
+<ParamField path="lat" type="number" required>
+  Latitude coordinate (e.g., 10.48 for Caracas)
+</ParamField>
+
+<ParamField path="lon" type="number" required>
+  Longitude coordinate (e.g., -66.90 for Caracas)
+</ParamField>
+
+<ParamField path="callback" type="function" optional>
+  Function called with weather data on success: `function(data)`
+</ParamField>
+
+<ResponseField name="return" type="boolean">
+  Returns true if weather data was successfully fetched
+</ResponseField>
+
+## Dashboard Integration
+
+The weather widget is integrated into the dashboard with automatic updates:
+
+```lua
+local function create_weather_widget()
+  local w = require("libs.weather")
+  
+  local weather_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 2)
+  weather_box:add_css_class("weather-card")
+
+  local location_label = Gtk.Label.new("loading...")
+  location_label:add_css_class("weather-location")
+  location_label:set_use_markup(true)
+  
+  local temp_label = Gtk.Label.new("󰖒 --°C")
+  temp_label:add_css_class("weather-temp")
+  temp_label:set_use_markup(true)
+  
+  local details_label = Gtk.Label.new("sincronizando...")
+  details_label:add_css_class("weather-details")
+  details_label:set_use_markup(true)
+
+  local function refresh_ui()
+    if not w.datos.load then return end
+
+    location_label:set_markup(string.format(
+      "<span weight='bold'>%s, %s</span>\n<span size='10pt'>%s</span>",
+      w.datos.state, w.datos.country,
+      w.datos.descrip))
+    
+    temp_label:set_markup(string.format(
+      "<span font_desc='24'>%s </span> <span size='22pt' weight='heavy'>%s</span>",
+      w.datos.emoji,
+      w.datos.temp))
+
+    details_label:set_markup(string.format(
+      "<span size='10pt'>󱪈  %s,  󱪀  %s</span>",
+      w.datos.wind,
+      w.datos.humi))
+  end
+
+  local function update_weather()
+    details_label:set_markup("<span size='x-small' alpha='50%%'>Updating...</span>")
+
+    w.update(10, 10.48, -66.90, function(data)
+      GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, function()
+        refresh_ui()
+        return false
+      end)
+    end)
+
+    if not w.datos.load then
+      details_label:set_markup("<span size='x-small' color='#ff5555'>error de conexión</span>")
+    end
+  end
+
+  -- Initial update
+  GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1, function()
+    update_weather()
+    return false
+  end)
+
+  -- Periodic updates every 5 minutes
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 300, function()
+    update_weather()
+    return true
+  end)
+
+  weather_box:append(location_label)
+  weather_box:append(temp_label)
+  weather_box:append(details_label)
+
+  return weather_box
+end
+```
+
+<ResponseField name="initial_update" type="number">
+  First update happens after 1ms
+</ResponseField>
+
+<ResponseField name="update_interval" type="number">
+  Weather updates every 300 seconds (5 minutes)
+</ResponseField>
+
+## Display Format
+
+The weather widget displays three pieces of information:
+
+### Location
+```
+<bold>City, Country</bold>
+Weather Description
+```
+
+Example:
+```
+Caracas, Venezuela
+Partly cloudy
+```
+
+### Temperature
+```
+<large emoji> <large temp>
+```
+
+Example:
+```
+󰖕 24°C
+```
+
+### Details
+```
+󱪈 wind_speed,  󱪀 humidity
+```
+
+Example:
+```
+󱪈 10 km/h,  󱪀 65%
+```
+
+## Configuration
+
+### Setting Your Location
+
+Edit the coordinates in the dashboard weather widget creation:
+
+```lua
+w.update(10, YOUR_LATITUDE, YOUR_LONGITUDE, function(data)
+  -- ...
+end)
+```
+
+Example coordinates:
+- Caracas, Venezuela: `10.48, -66.90`
+- New York, USA: `40.71, -74.01`
+- London, UK: `51.51, -0.13`
+- Tokyo, Japan: `35.68, 139.65`
+
+### Finding Your Coordinates
+
+1. Go to [OpenStreetMap](https://www.openstreetmap.org/)
+2. Search for your location
+3. Right-click and select "Show address"
+4. Copy the latitude and longitude values
+
+## Weather Provider
+
+The widget uses MET Norway as the weather data provider:
+
+```lua
+info:set_enabled_providers("MET_NO")
+```
+
+<ParamField path="provider" type="string" default="MET_NO">
+  Weather data provider (MET_NO for Met.no Norwegian Meteorological Institute)
+</ParamField>
+
+## Error Handling
+
+The widget handles connection errors gracefully:
+
+```lua
+if not w.datos.load then
+  details_label:set_markup("<span size='x-small' color='#ff5555'>error de conexión</span>")
+end
+```
+
+Timeout protection:
+```lua
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, seconds or 10, function()
+  if not success then
+    loop:quit()
+  end
+  return false
+end)
+```
+
+## CSS Classes
+
+<Expandable title="Weather Widget CSS Classes">
+
+| Class | Purpose |
+|-------|--------|
+| `weather-card` | Main weather widget container |
+| `weather-location` | Location and description text |
+| `weather-temp` | Temperature display with icon |
+| `weather-details` | Wind and humidity details |
+
+</Expandable>
+
+## File Locations
+
+- Library: `libs/weather.lua:1-95`
+- Dashboard integration: `dashboard.lua:30-97`
+
+## Dependencies
+
+- `lgi.GWeather` - GNOME Weather library for weather data
+- `lgi.GLib` - Event loop and timers

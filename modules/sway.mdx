@@ -1,0 +1,655 @@
+---
+title: Sway
+description: Sway/i3 IPC communication for window manager control
+---
+
+The `sway` module provides low-level IPC (Inter-Process Communication) for controlling the Sway window manager. It implements the i3/Sway IPC protocol for sending commands and retrieving workspace, output, and window tree information.
+
+## Usage
+
+```lua
+local sway = require("libs.sway")
+
+-- Connect to Sway
+local conn = sway.connect()
+
+if conn then
+  -- Get version
+  local version = sway.get_version(conn)
+  
+  -- Switch workspace
+  sway.switch_workspace(conn, "2")
+  
+  -- Execute command
+  sway.exec(conn, "firefox")
+  
+  -- Close connection
+  sway.close(conn)
+end
+```
+
+## Connection Management
+
+### connect
+
+```lua
+local conn = sway.connect()
+```
+
+Establishes a connection to the Sway IPC socket.
+
+**Returns:** GIO socket connection, or `nil` if connection fails
+
+**Example:**
+
+```lua
+local sway = require("libs.sway")
+
+local conn = sway.connect()
+if not conn then
+  print("Failed to connect to Sway")
+  print("Make sure SWAYSOCK environment variable is set")
+  return
+end
+
+print("Connected to Sway IPC")
+```
+
+### close
+
+```lua
+sway.close(conn)
+```
+
+Closes the IPC connection.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Connection object returned by `connect()`
+</ParamField>
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+-- ... perform operations
+sway.close(conn)
+```
+
+## Message Types
+
+The module defines constants for IPC message types:
+
+```lua
+sway.COMMAND = 0           -- Run a command
+sway.GET_WORKSPACES = 1    -- Get workspace info
+sway.GET_OUTPUTS = 3       -- Get output info
+sway.GET_TREE = 4          -- Get window tree
+sway.GET_VERSION = 7       -- Get version info
+```
+
+## Information Retrieval
+
+### get_version
+
+```lua
+local json = sway.get_version(conn)
+```
+
+Retrieves Sway version information.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+**Returns:** JSON string with version information
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+local version = sway.get_version(conn)
+print("Sway version: " .. version)
+sway.close(conn)
+
+-- Output: {"human_readable":"1.8","variant":"sway","major":1,"minor":8,"patch":0}
+```
+
+### get_workspaces
+
+```lua
+local json = sway.get_workspaces(conn)
+```
+
+Retrieves information about all workspaces.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+**Returns:** JSON string with workspace array
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+local workspaces = sway.get_workspaces(conn)
+print(workspaces)
+sway.close(conn)
+
+-- Returns JSON array with workspace objects
+```
+
+### get_outputs
+
+```lua
+local json = sway.get_outputs(conn)
+```
+
+Retrieves information about all outputs (monitors).
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+**Returns:** JSON string with output array
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+local outputs = sway.get_outputs(conn)
+print(outputs)
+sway.close(conn)
+```
+
+### get_tree
+
+```lua
+local json = sway.get_tree(conn)
+```
+
+Retrieves the complete window tree structure.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+**Returns:** JSON string with window tree
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+local tree = sway.get_tree(conn)
+print(tree)
+sway.close(conn)
+```
+
+## Command Execution
+
+### run_command
+
+```lua
+local response = sway.run_command(conn, command)
+```
+
+Executes a Sway command.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+<ParamField path="command" type="string" required>
+  Sway command to execute
+</ParamField>
+
+**Returns:** JSON string with command result
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+
+-- Split container horizontally
+local result = sway.run_command(conn, "splith")
+
+-- Close focused window
+local result = sway.run_command(conn, "kill")
+
+-- Set border style
+local result = sway.run_command(conn, "border pixel 2")
+
+sway.close(conn)
+```
+
+### exec
+
+```lua
+local response = sway.exec(conn, app_command)
+```
+
+Launches an application via Sway.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+<ParamField path="app_command" type="string" required>
+  Application command to execute
+</ParamField>
+
+**Returns:** JSON string with execution result
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+
+-- Launch Firefox
+sway.exec(conn, "firefox")
+
+-- Launch terminal
+sway.exec(conn, "alacritty")
+
+-- Launch with arguments
+sway.exec(conn, "code /home/user/project")
+
+sway.close(conn)
+```
+
+### workspace
+
+```lua
+local response = sway.workspace(conn, name)
+```
+
+Switches to a workspace by name or number.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Workspace name or number
+</ParamField>
+
+**Returns:** JSON string with result
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+
+-- Switch to workspace 1
+sway.workspace(conn, "1")
+
+-- Switch to named workspace
+sway.workspace(conn, "web")
+
+sway.close(conn)
+```
+
+### focus
+
+```lua
+local response = sway.focus(conn, direction)
+```
+
+Changes focus in a direction.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+<ParamField path="direction" type="string" required>
+  Direction: `"left"`, `"right"`, `"up"`, `"down"`, `"parent"`, `"child"`
+</ParamField>
+
+**Returns:** JSON string with result
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+
+-- Focus left window
+sway.focus(conn, "left")
+
+-- Focus right window
+sway.focus(conn, "right")
+
+-- Focus parent container
+sway.focus(conn, "parent")
+
+sway.close(conn)
+```
+
+### switch_workspace
+
+```lua
+local response = sway.switch_workspace(conn, workspace_name)
+```
+
+Alias for `workspace()`. Switches to a workspace.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+<ParamField path="workspace_name" type="string" required>
+  Workspace name or number
+</ParamField>
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+sway.switch_workspace(conn, "3")
+sway.close(conn)
+```
+
+## Low-Level Function
+
+### send_raw
+
+```lua
+local response = sway.send_raw(conn, command, msg_type)
+```
+
+Sends a raw IPC message. Used internally by other functions.
+
+<ParamField path="conn" type="GioSocketConnection" required>
+  Active IPC connection
+</ParamField>
+
+<ParamField path="command" type="string" required>
+  Command or payload to send
+</ParamField>
+
+<ParamField path="msg_type" type="number">
+  Message type constant (defaults to `sway.COMMAND`)
+</ParamField>
+
+**Returns:** Response payload as string
+
+**Example:**
+
+```lua
+local conn = sway.connect()
+
+-- Send custom command
+local response = sway.send_raw(conn, "gaps inner all set 10", sway.COMMAND)
+
+-- Get workspaces
+local ws = sway.send_raw(conn, "get_workspaces", sway.GET_WORKSPACES)
+
+sway.close(conn)
+```
+
+## Complete Examples
+
+### Workspace Switcher
+
+```lua
+local sway = require("libs.sway")
+local Gtk = require("lgi").require("Gtk", "4.0")
+
+local function create_workspace_switcher()
+  local box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 5)
+  
+  -- Create buttons for workspaces 1-10
+  for i = 1, 10 do
+    local btn = Gtk.Button.new_with_label(tostring(i))
+    
+    btn.on_clicked = function()
+      local conn = sway.connect()
+      if conn then
+        sway.switch_workspace(conn, tostring(i))
+        sway.close(conn)
+      end
+    end
+    
+    box:append(btn)
+  end
+  
+  return box
+end
+```
+
+### Window Focus Controls
+
+```lua
+local sway = require("libs.sway")
+local Gtk = require("lgi").require("Gtk", "4.0")
+
+local function create_focus_controls()
+  local box = Gtk.Box.new(Gtk.Orientation.HORIZONTAL, 5)
+  
+  local directions = {
+    {"Left", "left", "go-previous"},
+    {"Down", "down", "go-down"},
+    {"Up", "up", "go-up"},
+    {"Right", "right", "go-next"}
+  }
+  
+  for _, dir in ipairs(directions) do
+    local btn = Gtk.Button.new_from_icon_name(dir[3])
+    btn:set_tooltip_text("Focus " .. dir[1])
+    
+    btn.on_clicked = function()
+      local conn = sway.connect()
+      if conn then
+        sway.focus(conn, dir[2])
+        sway.close(conn)
+      end
+    end
+    
+    box:append(btn)
+  end
+  
+  return box
+end
+```
+
+### Application Launcher
+
+```lua
+local sway = require("libs.sway")
+
+local function launch_app(command)
+  local conn = sway.connect()
+  
+  if not conn then
+    print("Error: Cannot connect to Sway")
+    return false
+  end
+  
+  local result = sway.exec(conn, command)
+  sway.close(conn)
+  
+  print("Launched: " .. command)
+  return true
+end
+
+-- Launch applications
+launch_app("firefox")
+launch_app("alacritty")
+launch_app("code")
+```
+
+### Gap Control
+
+```lua
+local sway = require("libs.sway")
+
+local function set_gaps(inner, outer)
+  local conn = sway.connect()
+  if not conn then return end
+  
+  sway.run_command(conn, string.format("gaps inner all set %d", inner))
+  sway.run_command(conn, string.format("gaps outer all set %d", outer))
+  
+  sway.close(conn)
+  print(string.format("Set gaps: inner=%d, outer=%d", inner, outer))
+end
+
+local function increase_gaps()
+  local conn = sway.connect()
+  if not conn then return end
+  
+  sway.run_command(conn, "gaps inner all plus 5")
+  sway.close(conn)
+end
+
+local function decrease_gaps()
+  local conn = sway.connect()
+  if not conn then return end
+  
+  sway.run_command(conn, "gaps inner all minus 5")
+  sway.close(conn)
+end
+
+-- Usage
+set_gaps(10, 5)
+increase_gaps()
+decrease_gaps()
+```
+
+## IPC Protocol Details
+
+The module implements the i3/Sway IPC protocol:
+
+### Message Format
+
+```
+[Magic String: 6 bytes] [Length: 4 bytes] [Type: 4 bytes] [Payload: N bytes]
+"i3-ipc"                uint32_t           uint32_t         JSON/string
+```
+
+### Header Structure
+
+Defined using FFI:
+
+```lua
+-- libs/sway.lua:11-16
+ffi.cdef[[
+  typedef struct {
+    uint32_t length;
+    uint32_t type;
+  } sway_ipc_header_t;
+]]
+```
+
+### Socket Path
+
+The socket path is read from the `SWAYSOCK` environment variable:
+
+```lua
+-- libs/sway.lua:30-32
+local path = os.getenv("SWAYSOCK")
+if not path then 
+  return nil 
+end
+```
+
+## Error Handling
+
+The module includes basic error handling:
+
+```lua
+-- Check connection
+local conn = sway.connect()
+if not conn then
+  print("Failed to connect - SWAYSOCK not set or Sway not running")
+  return
+end
+
+-- Verify responses
+local response = sway.send_raw(conn, command, msg_type)
+if not response then
+  print("No response received from Sway")
+end
+```
+
+## Implementation Details
+
+### Binary Protocol
+
+The module uses LuaJIT FFI for binary struct handling:
+
+```lua
+-- libs/sway.lua:46-51
+local header_struct = ffi.new("sway_ipc_header_t")
+header_struct.length = #command
+header_struct.type = msg_type
+
+local header_bytes = ffi.cast("char*", header_struct)
+output:write(ffi.string(header_bytes, ffi.sizeof(header_struct)), nil)
+```
+
+### Response Parsing
+
+Responses are currently returned as raw JSON strings. The commented-out `parse_json_to_lua` function suggests future parsing capability:
+
+```lua
+-- libs/sway.lua:97-100
+local function parse_json_to_lua(str)
+    --- wwworkingmamameelbicho
+    return str 
+end
+```
+
+For now, parse JSON manually:
+
+```lua
+local Json = require("lgi").Json
+
+local json_str = sway.get_version(conn)
+local parser = Json.Parser.new()
+parser:load_from_data(json_str, -1)
+local obj = parser:get_root():get_object()
+local version = obj:get_string_member("human_readable")
+```
+
+## Sway Command Reference
+
+Common Sway commands you can use with `run_command()`:
+
+```lua
+-- Layout
+sway.run_command(conn, "splith")      -- Split horizontally
+sway.run_command(conn, "splitv")      -- Split vertically
+sway.run_command(conn, "layout tabbed") -- Tabbed layout
+sway.run_command(conn, "layout stacking") -- Stacking layout
+
+-- Windows
+sway.run_command(conn, "kill")        -- Close window
+sway.run_command(conn, "fullscreen")  -- Toggle fullscreen
+sway.run_command(conn, "floating toggle") -- Toggle floating
+
+-- Gaps
+sway.run_command(conn, "gaps inner all set 10")
+sway.run_command(conn, "gaps outer all set 5")
+sway.run_command(conn, "gaps inner all plus 5")
+sway.run_command(conn, "gaps inner all minus 5")
+
+-- Borders
+sway.run_command(conn, "border pixel 2")
+sway.run_command(conn, "border normal")
+sway.run_command(conn, "border none")
+```
+
+## Dependencies
+
+- **LGI**: Lua GObject Introspection bindings
+- **LuaJIT FFI**: Foreign Function Interface for binary structures
+- **GIO**: GLib I/O for socket connections
+- **Json-glib**: JSON parsing (for manual parsing)
+- **Sway**: Window manager (must be running)
+
+## Limitations
+
+- No event subscription support (IPC events)
+- JSON responses are returned as strings (no automatic parsing)
+- No async/callback support (all operations are synchronous)
+- Requires LuaJIT for FFI support

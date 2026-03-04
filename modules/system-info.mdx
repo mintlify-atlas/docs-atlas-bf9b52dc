@@ -1,0 +1,343 @@
+---
+title: System Info
+description: System information retrieval for CPU, RAM, disk, and battery
+---
+
+The `system_i` module provides functions to retrieve real-time system information including CPU usage, memory statistics, disk usage, and battery status. It uses GTop for system metrics and UPower for battery information.
+
+## Usage
+
+```lua
+local system = require("libs.system_i")
+
+-- Get memory info
+local mem = system.get_mem_info()
+print("RAM usage: " .. mem.ram.percent_real_used .. "%")
+
+-- Get CPU usage
+local cpu = system.get_cpu_used()
+print("CPU: " .. cpu .. "%")
+
+-- Get battery percentage
+local battery = system.get_battery_percentage()
+print("Battery: " .. battery .. "%")
+```
+
+## Functions
+
+### get_mem_info
+
+```lua
+local info = system.get_mem_info()
+```
+
+Retrieves comprehensive memory and swap usage information.
+
+**Returns:** Table with memory statistics
+
+```lua
+{
+  ram = {
+    total = 16384.5,          -- Total RAM in MB
+    used = 8192.3,            -- Used RAM in MB (including buffers/cache)
+    free = 8192.2,            -- Free RAM in MB
+    real_used = 6144.1,       -- Actually used RAM in MB (excluding buffers/cache)
+    percent_real_used = 37.5, -- Real usage percentage
+    percent_used = 50.0       -- Total usage percentage (including buffers)
+  },
+  swap = {
+    total = 4096.0,           -- Total swap in MB
+    used = 512.5,             -- Used swap in MB
+    free = 3583.5,            -- Free swap in MB
+    percent_used = 12.5       -- Swap usage percentage (0 if no swap)
+  }
+}
+```
+
+**Example:**
+
+```lua
+local system = require("libs.system_i")
+local mem = system.get_mem_info()
+
+print(string.format("RAM: %.1f / %.1f MB (%.1f%%)",
+  mem.ram.real_used,
+  mem.ram.total,
+  mem.ram.percent_real_used))
+
+print(string.format("Swap: %.1f / %.1f MB (%.1f%%)",
+  mem.swap.used,
+  mem.swap.total,
+  mem.swap.percent_used))
+```
+
+### get_disk_usage
+
+```lua
+local percent = system.get_disk_usage(mount_point)
+```
+
+Retrieves disk usage percentage for a specific mount point.
+
+<ParamField path="mount_point" type="string" required>
+  Filesystem mount point (e.g., `"/"`, `"/home"`, `"/mnt/data"`)
+</ParamField>
+
+**Returns:** Percentage of disk space used (0-100)
+
+**Example:**
+
+```lua
+-- Check root filesystem usage
+local root_usage = system.get_disk_usage("/")
+print("Root disk usage: " .. root_usage .. "%")
+
+-- Check home directory usage
+local home_usage = system.get_disk_usage("/home")
+print("Home disk usage: " .. home_usage .. "%")
+
+-- Display warning if disk is full
+if root_usage > 90 then
+  print("Warning: Disk almost full!")
+end
+```
+
+### get_battery_info
+
+```lua
+local info = system.get_battery_info()
+```
+
+Retrieves complete battery information. Results are cached for 5 seconds to reduce UPower queries.
+
+**Returns:** Table with battery data
+
+```lua
+{
+  percentage = 75.5,      -- Battery percentage (0-100)
+  state = 2,              -- Battery state (see states below)
+  time_empty = 3600,      -- Seconds until empty (when discharging)
+  time_full = 1800        -- Seconds until full (when charging)
+}
+```
+
+**Battery States:**
+- `0` - Unknown
+- `1` - Charging
+- `2` - Discharging
+- `3` - Empty
+- `4` - Fully charged
+- `5` - Pending charge
+- `6` - Pending discharge
+
+**Example:**
+
+```lua
+local system = require("libs.system_i")
+local battery = system.get_battery_info()
+
+local states = {
+  [0] = "Unknown",
+  [1] = "Charging",
+  [2] = "Discharging",
+  [3] = "Empty",
+  [4] = "Fully charged"
+}
+
+print(string.format("Battery: %.0f%% - %s",
+  battery.percentage,
+  states[battery.state]))
+
+if battery.state == 2 then
+  local hours = math.floor(battery.time_empty / 3600)
+  local mins = math.floor((battery.time_empty % 3600) / 60)
+  print(string.format("Time remaining: %dh %dm", hours, mins))
+end
+```
+
+### get_battery_percentage
+
+```lua
+local percent = system.get_battery_percentage()
+```
+
+Convenience function to get just the battery percentage.
+
+**Returns:** Battery percentage (0-100)
+
+**Example:**
+
+```lua
+local battery = system.get_battery_percentage()
+
+-- Update battery icon based on level
+if battery > 80 then
+  icon = "battery-full"
+elseif battery > 50 then
+  icon = "battery-good"
+elseif battery > 20 then
+  icon = "battery-low"
+else
+  icon = "battery-critical"
+end
+```
+
+### get_battery_state
+
+```lua
+local state = system.get_battery_state()
+```
+
+Convenience function to get just the battery state.
+
+**Returns:** Battery state as number (see states in `get_battery_info`)
+
+**Example:**
+
+```lua
+local state = system.get_battery_state()
+
+if state == 1 then
+  print("Battery is charging")
+  show_charging_icon()
+elseif state == 2 then
+  print("Battery is discharging")
+  show_battery_icon()
+elseif state == 4 then
+  print("Battery is fully charged")
+end
+```
+
+### get_cpu_used
+
+```lua
+local percent = system.get_cpu_used()
+```
+
+Returns current CPU usage percentage. Calculates usage based on the difference from the last call.
+
+**Returns:** CPU usage percentage (0-100)
+
+**Note:** First call returns 0 as it establishes the baseline. Subsequent calls return actual CPU usage.
+
+**Example:**
+
+```lua
+local system = require("libs.system_i")
+
+-- Initialize baseline
+system.get_cpu_used()
+
+-- Update CPU display every second
+local function update_cpu()
+  local cpu = system.get_cpu_used()
+  cpu_label:set_text(string.format("CPU: %.1f%%", cpu))
+  return true  -- Keep timer running
+end
+
+-- GTK4 timer
+local GLib = require("lgi").GLib
+GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, update_cpu)
+```
+
+## Complete System Monitor Example
+
+```lua
+local system = require("libs.system_i")
+local Gtk = require("lgi").require("Gtk", "4.0")
+local GLib = require("lgi").GLib
+
+local function create_system_monitor()
+  local box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+  
+  local cpu_label = Gtk.Label.new("CPU: --")
+  local ram_label = Gtk.Label.new("RAM: --")
+  local disk_label = Gtk.Label.new("Disk: --")
+  local battery_label = Gtk.Label.new("Battery: --")
+  
+  box:append(cpu_label)
+  box:append(ram_label)
+  box:append(disk_label)
+  box:append(battery_label)
+  
+  -- Update function
+  local function update_stats()
+    -- CPU
+    local cpu = system.get_cpu_used()
+    cpu_label:set_text(string.format("CPU: %.1f%%", cpu))
+    
+    -- RAM
+    local mem = system.get_mem_info()
+    ram_label:set_text(string.format("RAM: %.1f%% (%.0f MB)",
+      mem.ram.percent_real_used,
+      mem.ram.real_used))
+    
+    -- Disk
+    local disk = system.get_disk_usage("/")
+    disk_label:set_text(string.format("Disk: %.1f%%", disk))
+    
+    -- Battery
+    local battery = system.get_battery_info()
+    local state_text = battery.state == 1 and "Charging" or "Discharging"
+    battery_label:set_text(string.format("Battery: %.0f%% (%s)",
+      battery.percentage,
+      state_text))
+    
+    return true  -- Continue timer
+  end
+  
+  -- Update every 2 seconds
+  GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, update_stats)
+  update_stats()  -- Initial update
+  
+  return box
+end
+```
+
+## Performance Considerations
+
+### Battery Caching
+
+Battery information is cached for 5 seconds to avoid excessive UPower queries:
+
+```lua
+-- libs/system_i.lua:64-68
+local current_time = os.time()
+if battery_cache and (current_time - battery_cache_time) < 5 then
+  return battery_cache
+end
+```
+
+This means multiple calls to battery functions within 5 seconds return cached data.
+
+### CPU Usage Calculation
+
+CPU usage is calculated using a delta method that compares total CPU time and idle time between calls. The first call establishes a baseline and returns 0.
+
+## Implementation Details
+
+### Memory Calculation
+
+The module calculates "real used" memory by subtracting buffers and cache from used memory:
+
+```lua
+local real_used = mem.used - mem.buffer - mem.cached
+```
+
+This provides a more accurate representation of memory actually used by applications.
+
+### Battery Device Path
+
+The module looks for the battery at the standard UPower path:
+```
+/org/freedesktop/UPower/devices/battery_BAT0
+```
+
+If not found, it returns default values (0% charge, state 0).
+
+## Dependencies
+
+- **LGI**: Lua GObject Introspection bindings
+- **GTop**: System monitoring library
+- **UPowerGlib**: Battery and power management
+- **GLib**: Core utilities

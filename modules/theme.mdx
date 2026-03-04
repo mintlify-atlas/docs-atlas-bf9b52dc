@@ -1,0 +1,231 @@
+---
+title: Theme
+description: Dynamic theme generation and color management using Matugen
+---
+
+The `theme` module provides dynamic theming capabilities for CandyShell, integrating with [Matugen](https://github.com/InioX/matugen) to generate color schemes from wallpaper images and applying them as GTK CSS variables.
+
+## Usage
+
+```lua
+local theme = require("libs.theme")
+
+-- Apply a theme from an image
+theme.apply("/path/to/wallpaper.png", "dark")
+
+-- Save theme settings
+theme.save_settings("/path/to/wallpaper.png", "dark")
+
+-- Load saved settings
+local wallpaper, mode = theme.get_saved_settings()
+```
+
+## Functions
+
+### apply
+
+```lua
+theme.apply(image_path, selected_mode)
+```
+
+Generates and applies a color scheme from an image using Matugen.
+
+<ParamField path="image_path" type="string" required>
+  Path to the wallpaper image file
+</ParamField>
+
+<ParamField path="selected_mode" type="string" required>
+  Theme mode: `"dark"` or `"light"`. Defaults to `"dark"` if invalid
+</ParamField>
+
+**Process:**
+1. Executes `matugen image '<path>' -j hex` to extract colors
+2. Parses the JSON output to get color palette
+3. Converts colors to CSS `@define-color` variables
+4. Loads the CSS into the GTK style context
+
+**Example:**
+
+```lua
+local theme = require("libs.theme")
+
+-- Apply dark theme from wallpaper
+theme.apply("/home/user/Pictures/sunset.jpg", "dark")
+
+-- Apply light theme
+theme.apply("/home/user/Pictures/beach.png", "light")
+```
+
+### save_settings
+
+```lua
+theme.save_settings(image_path, mode)
+```
+
+Persists theme settings to a configuration file.
+
+<ParamField path="image_path" type="string" required>
+  Path to the wallpaper image to save
+</ParamField>
+
+<ParamField path="mode" type="string" required>
+  Theme mode: `"dark"` or `"light"`
+</ParamField>
+
+**Storage Location:** `~/.config/candy-shell/config.json`
+
+**Example:**
+
+```lua
+-- Save current theme settings
+theme.save_settings("/home/user/wallpaper.png", "dark")
+```
+
+**JSON Format:**
+```json
+{
+  "wallpaper": "/home/user/wallpaper.png",
+  "theme_mode": "dark"
+}
+```
+
+### get_saved_settings
+
+```lua
+local wallpaper, mode = theme.get_saved_settings()
+```
+
+Retrieves saved theme settings from the configuration file.
+
+**Returns:**
+- `wallpaper` (string): Path to the saved wallpaper image
+- `mode` (string): Theme mode (`"dark"` or `"light"`)
+
+**Default Values:** If no config exists, returns `"res/wall.png"` and `"dark"`
+
+**Example:**
+
+```lua
+local theme = require("libs.theme")
+
+-- Load and apply saved theme
+local wallpaper, mode = theme.get_saved_settings()
+theme.apply(wallpaper, mode)
+```
+
+## Configuration Storage
+
+The module stores configuration in:
+- **Directory:** `~/.config/candy-shell/`
+- **File:** `config.json`
+
+The directory is created automatically with permissions `755` if it doesn't exist.
+
+## Matugen Integration
+
+The module integrates with Matugen to extract Material Design color palettes from images:
+
+- **Command:** `matugen image '<path>' -j hex`
+- **Output:** JSON with color definitions for both light and dark modes
+- **Format:** Hex color values
+
+**Example Matugen Output:**
+```json
+{
+  "colors": {
+    "dark": {
+      "primary": "#bb86fc",
+      "secondary": "#03dac6",
+      "background": "#121212",
+      "surface": "#1e1e1e"
+    },
+    "light": {
+      "primary": "#6200ee",
+      "secondary": "#018786",
+      "background": "#ffffff",
+      "surface": "#f5f5f5"
+    }
+  }
+}
+```
+
+## CSS Variable Generation
+
+Colors from Matugen are converted to GTK CSS variables:
+
+```css
+@define-color primary #bb86fc;
+@define-color secondary #03dac6;
+@define-color background #121212;
+@define-color surface #1e1e1e;
+```
+
+These variables can be used in GTK CSS:
+
+```css
+window {
+  background: @background;
+}
+
+button {
+  background: @primary;
+  color: @surface;
+}
+```
+
+## Complete Example
+
+```lua
+local theme = require("libs.theme")
+local Gtk = require("lgi").require("Gtk", "4.0")
+
+-- Initialize application
+local app = Gtk.Application.new("com.candyshell.example")
+
+app.on_activate = function()
+  -- Load saved theme or use defaults
+  local wallpaper, mode = theme.get_saved_settings()
+  theme.apply(wallpaper, mode)
+  
+  -- Create window with themed colors
+  local window = Gtk.ApplicationWindow.new(app)
+  window:present()
+end
+
+-- Change theme on user action
+local function change_wallpaper(new_path, new_mode)
+  theme.apply(new_path, new_mode)
+  theme.save_settings(new_path, new_mode)
+end
+
+change_wallpaper("/home/user/new-wallpaper.jpg", "light")
+```
+
+## Implementation Details
+
+### CSS Provider
+
+The module maintains a single `Gtk.CssProvider` instance that is added to the default display with priority `800`:
+
+```lua
+local css_provider = Gtk.CssProvider.new()
+local display = Gdk.Display.get_default()
+Gtk.StyleContext.add_provider_for_display(display, css_provider, 800)
+```
+
+This ensures theme colors are applied globally across all GTK widgets.
+
+### Error Handling
+
+- If Matugen fails or returns empty output, `apply()` silently returns
+- If JSON parsing fails, the error is printed to console
+- If an invalid mode is provided, it defaults to `"dark"`
+- If config file doesn't exist, `get_saved_settings()` returns defaults
+
+## Dependencies
+
+- **LGI**: Lua GObject Introspection bindings
+- **GTK 4.0**: UI toolkit
+- **GLib**: Core utilities
+- **Json-glib**: JSON parsing
+- **Matugen**: External tool for color extraction (must be in PATH)

@@ -1,0 +1,463 @@
+---
+title: Features
+description: Comprehensive overview of CandyShell's components and capabilities
+---
+
+## Core components
+
+CandyShell consists of three main visual layers: the background wallpaper window, the pull-down dashboard, and the bottom application bar.
+
+### Wallpaper layer
+
+The wallpaper sits on the `BACKGROUND` layer and responds to mouse events:
+
+<CodeGroup>
+```lua main.lua
+local wallpaper = Gtk.Picture.new_for_filename(current_wp_path)
+wallpaper.content_fit = Gtk.ContentFit.COVER
+
+local click_controller = Gtk.GestureClick.new()
+click_controller:set_button(0) -- Listen to all buttons
+
+function click_controller:on_pressed(n_press, x, y)
+  local btn = self:get_current_button()
+  if btn == 1 then
+    -- Left click: open file picker for new wallpaper
+  elseif btn == 3 then
+    -- Right click: toggle light/dark theme
+  end
+end
+```
+</CodeGroup>
+
+The wallpaper automatically triggers theme regeneration when changed, extracting color palettes for the entire interface.
+
+### Dashboard overlay
+
+The dashboard appears when you hover near the top edge of the screen and auto-hides when you move away.
+
+```lua dashboard.lua
+local motion_controller = Gtk.EventControllerMotion.new()
+
+function motion_controller:on_enter()
+  revealer.reveal_child = true
+  if conn then
+    sway.run_command(conn, "gaps top all set 310")
+  end
+end
+
+function motion_controller:on_leave()
+  revealer.reveal_child = false
+  if conn then
+    sway.run_command(conn, "gaps top all set 10")
+  end
+end
+```
+
+This integration with Sway's IPC creates space for the dashboard by adjusting window gaps dynamically.
+
+### Bottom bar
+
+The bottom bar uses the `TOP` layer with auto-exclusive zone to reserve screen space:
+
+```lua main.lua
+LayerShell.init_for_window(bar_win)
+LayerShell.set_layer(bar_win, LayerShell.Layer.TOP)
+LayerShell.set_anchor(bar_win, LayerShell.Edge.BOTTOM, true)
+LayerShell.auto_exclusive_zone_enable(bar_win)
+```
+
+It contains three sections: launcher, pinned apps, and system status.
+
+## Dashboard widgets
+
+### Calendar
+
+Custom calendar implementation with automatic updates:
+
+<CodeGroup>
+```lua calendario.lua
+function M.crear_calendario(mes, anio)
+  local calendario_box = Gtk.Box.new(Gtk.Orientation.VERTICAL, 10)
+  
+  local cal_mes = Gtk.Label.new(M.wmonths[mes] .. ", " .. anio)
+  cal_mes:add_css_class("cal-header")
+  
+  local cal_dias = Gtk.Grid.new()
+  
+  local total_dias = M.dias_en_mes(mes, anio)
+  local dia_inicio = M.obtener_dia_inicio(mes, anio)
+  
+  -- Fill calendar grid with days
+  -- Highlight current day with "cal-today" CSS class
+  
+  return calendario_box
+end
+```
+</CodeGroup>
+
+The calendar:
+- Automatically highlights the current day
+- Calculates leap years correctly
+- Updates at midnight to reflect date changes
+- Supports Spanish month/day names (easily customizable)
+
+### Weather widget
+
+Powered by libgweather for accurate weather data:
+
+```lua libs/weather.lua
+function M.update(seconds, lat, lon, callback)
+  local mundo = GWeather.Location.get_world()
+  local city = mundo:find_nearest_city(lat, lon)
+  
+  local info = GWeather.Info.new()
+  info:set_location(city)
+  info:set_enabled_providers("MET_NO")
+  
+  info.on_updated = function(self)
+    M.datos.temp = self:get_temp()
+    M.datos.descrip = self:get_conditions()
+    M.datos.wind = self:get_wind()
+    M.datos.humi = self:get_humidity()
+    -- Trigger UI update
+  end
+end
+```
+
+Features:
+- Automatic location detection via GPS coordinates
+- Icon-based weather visualization with Nerd Font icons
+- Temperature, wind speed, and humidity display
+- Updates every 5 minutes
+- Fallback handling for connection errors
+
+### Music player
+
+Full-featured MPRIS music controller with visual flair:
+
+<CardGroup cols={2}>
+  <Card title="Album art extraction" icon="image">
+    Supports both base64-encoded and file:// URL album art from media players.
+  </Card>
+  <Card title="Dynamic theming" icon="wand-magic-sparkles">
+    Extracts dominant colors from album art to style the player widget.
+  </Card>
+  <Card title="Animated waveform" icon="wave-square">
+    Real-time animated waveform that syncs with playback position.
+  </Card>
+  <Card title="Playback controls" icon="play">
+    Play/pause, next, previous buttons with playerctl integration.
+  </Card>
+</CardGroup>
+
+```lua libs/music.lua
+function M.get_album_colors()
+  local pixbuf = M.get_album_art()
+  if not pixbuf then 
+    return "#353535", "#ffffff" -- Default colors
+  end
+  
+  -- Scale to 3x3 pixels to get average color
+  local one_pixel = pixbuf:scale_simple(3, 3, 'BILINEAR')
+  local bytes = one_pixel:read_pixel_bytes()
+  local data = bytes:get_data()
+  
+  local r = string.byte(data, 1)
+  local g = string.byte(data, 2)
+  local b = string.byte(data, 3)
+  
+  local bg_hex = string.format("#%02x%02x%02x", r, g, b)
+  local fg_hex = get_contrasting_text_color(r, g, b)
+  
+  return bg_hex, fg_hex
+end
+```
+
+The waveform animation uses Cairo for smooth rendering:
+
+```lua dashboard.lua
+local function draw_progress_wave(area, cr, width, height)
+  local active_length = bar_width * current_progress
+  
+  -- Draw inactive portion
+  cr:set_source_rgba(0.5, 0.5, 0.5, 0.25)
+  cr:line_to(width - padding, y_center)
+  
+  -- Draw active waveform
+  for i = 1, num_segments do
+    local x_pos = padding + (i / num_segments) * active_length
+    local wave_offset = math.sin(x_factor * PI * wave_frequency * 2 + animation_time * wave_speed)
+    local y_pos = y_center + (wave_offset * wave_amplitude)
+    cr:line_to(x_pos, y_pos)
+  end
+  cr:stroke()
+end
+```
+
+### System monitors
+
+Real-time system information using libgtop:
+
+```lua libs/system_i.lua
+function M.get_cpu_used()
+  local cpu = GTop.glibtop_cpu()
+  GTop.glibtop_get_cpu(cpu)
+  
+  local total_diff = cpu.total - last_total
+  local idle_diff = cpu.idle - last_idle
+  
+  if total_diff > 0 then
+    local usage = 100 * (1 - (idle_diff / total_diff))
+    return math.min(100, math.max(0, usage))
+  end
+  return 0
+end
+
+function M.get_mem_info()
+  local mem = GTop.glibtop_mem()
+  GTop.glibtop_get_mem(mem)
+  
+  local real_used = mem.used - mem.buffer - mem.cached
+  
+  return {
+    ram = {
+      real_used = to_mb(real_used),
+      percent_real_used = (real_used / mem.total) * 100
+    }
+  }
+end
+```
+
+Monitored resources:
+- **CPU usage** - Delta calculation for accurate percentage
+- **Memory usage** - Real usage excluding buffers/cache
+- **Disk usage** - Filesystem utilization for specified mount point
+- **Battery status** - Percentage and charging state with icon indicators
+
+### Profile section
+
+Personal information display with custom avatar:
+
+- User profile picture from `res/icon.jpg`
+- Username from `$USER` environment variable
+- System uptime with auto-refresh
+- Power management buttons (poweroff, exit session, lock)
+
+## Bottom bar features
+
+### Application launcher
+
+The launcher circle on the left is a placeholder for menu integration. In the current implementation, it uses a simple circular box with the `launcher-circular` CSS class.
+
+### Pinned applications
+
+Quick access to frequently used apps:
+
+```lua main.lua
+local pinned_apps = { 
+  "org.telegram.desktop._7b8e57b5241cb68ef979736501a5169d.desktop", 
+  "thunar.desktop", 
+  "vlc.desktop", 
+  "firefox.desktop", 
+  "sublime_text.desktop", 
+  "kitty.desktop" 
+}
+
+local function create_app_button(app_id)
+  local all_apps = GApps.get_all_apps()
+  local app_data = all_apps[app_id]
+  
+  local button = Gtk.Button.new()
+  local image = Gtk.Image.new_from_gicon(app_data.icon)
+  image:set_pixel_size(32)
+  
+  button:set_child(image)
+  button.on_clicked = function()
+    app_data.launch()
+  end
+  
+  return button
+end
+```
+
+The app launcher uses GIO's `AppInfo` API to:
+- Query all installed .desktop files
+- Extract app names, icons, and descriptions
+- Launch applications with proper environment setup
+
+### System status indicators
+
+<CardGroup cols={3}>
+  <Card title="WiFi" icon="wifi">
+    Connection status and signal strength with 5 levels of indicators.
+  </Card>
+  <Card title="Battery" icon="battery-full">
+    Percentage and charging state with 12 different battery icons.
+  </Card>
+  <Card title="Time" icon="clock">
+    Current time in 24-hour format, updates every second.
+  </Card>
+</CardGroup>
+
+```lua main.lua
+local function create_wifi_label()
+  local wifi_icons = {
+    excellent = "󰤨", good = "󰤥", 
+    fair = "󰢾", weak = "󰤟", none = "󰤮"
+  }
+  
+  local function update_wifi()
+    local strength = NetworkManager.get_wifi_strength()
+    local connected = NetworkManager.is_wifi_connected()
+    
+    if connected then
+      if strength >= 75 then icon = wifi_icons.excellent
+      elseif strength >= 50 then icon = wifi_icons.good
+      elseif strength >= 25 then icon = wifi_icons.fair
+      else icon = wifi_icons.weak end
+    else
+      icon = wifi_icons.none
+    end
+  end
+end
+```
+
+## Theme system
+
+CandyShell's theme system bridges wallpaper colors with GTK CSS:
+
+### Color extraction
+
+```lua libs/theme.lua
+function M.apply(image_path, selected_mode)
+  -- Run matugen to extract color palette
+  local cmd = string.format("matugen image '%s' -j hex", image_path)
+  local result = io.popen(cmd):read("*a")
+  
+  -- Parse JSON response
+  local root = parser:get_root():get_object()
+  local colors_obj = root:get_object_member("colors")
+  local palette = colors_obj:get_object_member(selected_mode)
+  
+  -- Generate CSS variables
+  local css_lines = {}
+  for _, name in ipairs(palette:get_members()) do
+    local value = palette:get_string_member(name)
+    table.insert(css_lines, 
+      string.format("@define-color %s %s;", name, value))
+  end
+  
+  -- Apply to GTK
+  css_provider:load_from_data(final_css, #final_css)
+end
+```
+
+### Persistent settings
+
+Theme preferences are saved to `~/.config/candy-shell/config.json`:
+
+```json
+{
+  "wallpaper": "/path/to/image.png",
+  "theme_mode": "dark"
+}
+```
+
+The configuration is loaded on startup to restore your previous theme.
+
+### CSS integration
+
+Extracted colors are used throughout `custom.css` to style all components:
+
+- Dashboard background and cards
+- Button hover states
+- Text colors based on background luminance
+- Accent colors for interactive elements
+- Smooth transitions when themes change
+
+## Sway IPC integration
+
+Direct communication with the Sway compositor:
+
+```lua libs/sway.lua
+function M.send_raw(conn, command, msg_type)
+  -- Construct IPC header: magic + length + type
+  local header_struct = ffi.new("sway_ipc_header_t")
+  header_struct.length = #command
+  header_struct.type = msg_type
+  
+  -- Send magic, header, payload
+  output:write(IPC_MAGIC, nil)
+  output:write(ffi.string(header_bytes, ffi.sizeof(header_struct)), nil)
+  output:write(command, nil)
+  
+  -- Read response
+  local response = input:read_bytes(resp_length, nil)
+  return response:get_data()
+end
+```
+
+Available IPC commands:
+- `get_workspaces` - Query workspace information
+- `get_outputs` - Monitor configuration
+- `get_tree` - Window tree structure
+- `run_command` - Execute arbitrary Sway commands
+- `exec` - Launch applications
+- `workspace` - Switch workspaces
+- `focus` - Change window focus
+
+## Performance optimizations
+
+### Memory management
+
+Periodic garbage collection prevents memory leaks:
+
+```lua main.lua
+GLib.timeout_add_seconds(GLib.PRIORITY_LOW, 30, function()
+  collectgarbage("collect")
+  return true
+end)
+```
+
+Widgets explicitly nil out large objects after use:
+
+```lua
+pixbuf = nil
+one_pixel = nil
+bytes = nil
+collectgarbage("step")
+```
+
+### Update intervals
+
+Each component uses appropriate refresh rates:
+
+- **Time display**: 1 second
+- **System monitors**: 2 seconds  
+- **Battery status**: 30 seconds
+- **WiFi strength**: 15 seconds
+- **Music player**: 1 second (metadata), 16ms (animation)
+- **Weather**: 5 minutes
+- **Calendar**: 60 seconds
+
+### Caching strategies
+
+Frequently accessed data is cached:
+
+```lua libs/system_i.lua
+local battery_cache = nil
+local battery_cache_time = 0
+
+function M.get_battery_info()
+  local current_time = os.time()
+  if battery_cache and (current_time - battery_cache_time) < 5 then
+    return battery_cache
+  end
+  -- Fetch new data
+end
+```
+
+<Note>
+  Battery information is cached for 5 seconds to avoid excessive UPower queries.
+</Note>
