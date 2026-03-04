@@ -1,0 +1,86 @@
+{
+  "projectType": "general",
+  "projectName": "CandyShell",
+  "projectDescription": "A lightweight, modular Wayland desktop shell built with GTK4, Adwaita, and Lua for minimal desktop experiences.",
+  "theme": "aspen",
+  "primaryColor": "#ff79c6",
+  "lightColor": "#bd93f9",
+  "darkColor": "#ff5555",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Overview",
+        "pages": [
+          "introduction",
+          "features"
+        ]
+      },
+      {
+        "group": "Getting Started",
+        "pages": [
+          "installation",
+          "configuration",
+          "running"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "architecture",
+          "theming",
+          "widgets"
+        ]
+      },
+      {
+        "group": "Components",
+        "pages": [
+          "components/dashboard",
+          "components/taskbar",
+          "components/calendar",
+          "components/music-player",
+          "components/weather",
+          "components/system-monitor"
+        ]
+      },
+      {
+        "group": "Modules",
+        "pages": [
+          "modules/theme",
+          "modules/system-info",
+          "modules/network",
+          "modules/apps",
+          "modules/music",
+          "modules/sway"
+        ]
+      },
+      {
+        "group": "Development",
+        "pages": [
+          "development/customization",
+          "development/adding-widgets",
+          "development/lua-api"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Modular Wayland shell with GTK4 and Gtk-Layer-Shell",
+    "Dynamic wallpaper-based theming with light/dark mode",
+    "Customizable dashboard with calendar, weather, and system monitoring",
+    "Music player integration with album art and playback controls",
+    "Bottom taskbar with pinned applications and system status",
+    "Sway window manager integration with dynamic gap control"
+  ],
+  "publicApiSurface": [
+    "main.lua - Application entry point and shell initialization",
+    "dashboard.lua - Dashboard widget creation and management",
+    "calendario.lua - Calendar widget with auto-updating date display",
+    "libs/theme.lua - Dynamic theme management using matugen",
+    "libs/system_i.lua - System information (CPU, RAM, disk, battery)",
+    "libs/nm.lua - NetworkManager WiFi integration",
+    "libs/gapps.lua - Desktop application launcher",
+    "libs/music.lua - MPRIS music player integration",
+    "libs/weather.lua - Weather data fetching and display",
+    "libs/sway.lua - Sway IPC communication"
+  ]
+}
